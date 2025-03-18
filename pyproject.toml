@@ -1,0 +1,20 @@
+[project]
+name = "vs-mod-manager"
+version = "0.1.0"
+description = "Mod manager for Vintage Story"
+authors = [
+    {name = "mrcrabs695",email = "bringleberry@proton.me"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "pyside6 (>=6.8.2.1,<7.0.0.0)",
+    "httpx (>=0.28.1,<0.29.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
