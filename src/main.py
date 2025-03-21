@@ -1,5 +1,7 @@
 import sys
 from PySide6.QtWidgets import QMainWindow, QWidget, QApplication
+from vsmoddb.client import ModDbClient
+from vsmoddb.models import SearchOrderBy
 
 class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None):
@@ -10,4 +12,8 @@ if __name__ == "__main__":
     widget = MainWindow()
     widget.show()
     sys.exit(app.exec())
+    
+    # testing
+    # client = ModDbClient()
+    # print(client.get_mod("carrycapacity"))
     

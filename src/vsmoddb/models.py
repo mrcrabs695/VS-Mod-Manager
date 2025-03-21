@@ -91,7 +91,7 @@ class Tag:
 
 
 class ModRelease:
-    def __init__(self, raw:dict, tags:list[Tag], changelog:ChangeLog):
+    def __init__(self, raw:dict, tags:list[Tag]):
         self.release_id = int(raw['releaseid'])
         self.main_file = str(raw['mainfile'])
         self.filename = str(raw['filename'])
@@ -101,7 +101,7 @@ class ModRelease:
         self.mod_id = str(raw['modidstr'])
         self.mod_version = str(raw['modversion'])
         self.created = parse_datetime(raw['created'])
-        self.changelog = changelog
+        self.changelog = str(raw['changelog'])
 
 
 class ModScreenshot:
@@ -138,7 +138,7 @@ class Mod:
         self.mod_id = int(raw['modid'])
         self.asset_id = int(raw['assetid'])
         self.name = str(raw['name'])
-        self.description = str(raw['description'])
+        self.description = str(raw['text'])
         self.author = author
         self.url_alias = str(raw['urlalias'])
         self.logo_filename = str(raw['logofilename'])
