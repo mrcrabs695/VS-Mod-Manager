@@ -2,7 +2,7 @@ from .models import (
     Tag,
     TagType,
     Comment,
-    Author,
+    User,
     ChangeLog,
     SearchOrderBy,
     SearchOrderDirection,
@@ -11,8 +11,9 @@ from .models import (
     ModRelease,
     ModScreenshot,
 )
-import httpx
 import json
+import httpx
+from PySide6.QtWidgets import QProgressBar, QProgressDialog
 
 USER_AGENT = "vs-mod-manager/0.1.0"
 BASE_URL = "https://mods.vintagestory.at"
@@ -30,7 +31,7 @@ class ModDbClient:
         # prefetch all tags and game versions
         self.tags: list[Tag] = self.update_mod_tags()
         self.versions: list[Tag] = self.update_game_versions()
-        self.authors = self.get_all_authors()
+        self.authors = self.get_all_users()
 
     def construct_get_params(self, options: dict[str, list[str] | str]) -> str:
         result = ""
@@ -93,15 +94,16 @@ class ModDbClient:
 
         return self.get_list_like("gameversions", "gameversions", e)
 
-    def get_all_authors(self) -> list[Author]:
-        def e(authors, author):
-            authors.append(Author(int(author['userid']), author['name']))
+    def get_all_users(self) -> list[User]:
+        def e(users, user):
+            users.append(User(int(user['userid']), user['name']))
 
         return self.get_list_like("authors", "authors", e)
 
     def get_comments(self, asset_id: int) -> list[Comment]:
         def e(comments, raw_comment):
-            comment = Comment(raw_comment)
+            user = self.user_from_id(raw_comment['user_id'])
+            comment = Comment(raw_comment, user)
             comments.append(comment)
 
         return self.get_list_like("comments/" + str(asset_id), "comments", e)
@@ -118,13 +120,13 @@ class ModDbClient:
         mod_tags: list[Tag] = None,
         version: Tag = None,
         versions: list[Tag] = None,
-        author: Author = None,
+        author: User = None,
         text: str = None,
         orderby: SearchOrderBy = None,
         order_direction: SearchOrderDirection = None,
     ):
         def e(mods, raw_mod):
-            mod_author = self.author_from_name(raw_mod['author'])
+            mod_author = self.user_from_name(raw_mod['author'])
             tags = []
             for tag in raw_mod['tags']:
                 tags.append(self.tag_from_name(tag))
@@ -154,7 +156,7 @@ class ModDbClient:
         for tag in raw_mod['tags']:
             tags.append(self.tag_from_name(tag))
 
-        author = self.author_from_name(raw_mod['author'])
+        author = self.user_from_name(raw_mod['author'])
 
         releases = []
         for release in raw_mod['releases']:
@@ -169,7 +171,22 @@ class ModDbClient:
 
         mod = Mod(raw_mod, author, tags, releases, screenshots)
         return mod
-
+    
+    def fetch_to_memory(self, url:str) -> bytes:
+        response = self.__http_client.get(url)
+        response.raise_for_status()
+        return response.content
+    
+    def fetch_to_file(self, url:str, file_location:str):
+        try:
+            with open(file_location, 'xb') as file:
+                with self.__http_client.stream("GET", url) as response:
+                    for chunk in response.iter_bytes():
+                        file.write(chunk)
+        except:
+            return False
+        return True
+    
     def tag_from_id(self, id: int) -> Tag | None:
         for tag in self.tags:
             if tag.id == id:
@@ -188,13 +205,13 @@ class ModDbClient:
                 return version
         return None
 
-    def author_from_id(self, id: int) -> Author | None:
+    def user_from_id(self, id: int) -> User | None:
         for author in self.author:
             if author.id == id:
                 return author
         return None
 
-    def author_from_name(self, name: str) -> Author | None:
+    def user_from_name(self, name: str) -> User | None:
         for author in self.authors:
             if author.name == name:
                 return author

@@ -23,7 +23,7 @@ class SearchOrderDirection(Enum):
     ASC = "asc"
     DESC = "desc"
 
-class Author:
+class User:
     def __init__(self, user_id:int, name:str):
         self.user_id:int = user_id
         self.name:str = name
@@ -33,10 +33,10 @@ class Author:
 
 
 class Comment:
-    def __init__(self, raw:dict):
+    def __init__(self, raw:dict, user:User):
         self.comment_id = int(raw['commentid'])
         self.asset_id = int(raw['assetid'])
-        self.user_id = int(raw['userid'])
+        self.user = user
         self.text = str(raw['text'])
         self.created = parse_datetime(raw['created'])
         self.last_modified = parse_datetime(raw['lastmodified'])
@@ -114,7 +114,7 @@ class ModScreenshot:
 
 
 class PartialMod:
-    def __init__(self, raw:dict, tags:list[Tag], author:Author):
+    def __init__(self, raw:dict, tags:list[Tag], author:User):
         self.mod_id = int(raw['modid'])
         self.asset_id = int(raw['assetid'])
         self.downloads = int(raw['downloads'])
@@ -134,7 +134,7 @@ class PartialMod:
 
 
 class Mod:
-    def __init__(self, raw:dict, author:Author, tags:list[Tag], releases:list[ModRelease], screenshots:list[ModScreenshot]):
+    def __init__(self, raw:dict, author:User, tags:list[Tag], releases:list[ModRelease], screenshots:list[ModScreenshot]):
         self.mod_id = int(raw['modid'])
         self.asset_id = int(raw['assetid'])
         self.name = str(raw['name'])
