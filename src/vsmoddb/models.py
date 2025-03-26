@@ -74,6 +74,7 @@ class ModSupportSide(Enum):
             return None
 
 
+
 class TagType(Enum):
     VERSION = "version"
     MOD = "mod"
@@ -131,7 +132,6 @@ class PartialMod:
         self.logo = str(raw['logo'])
         self.tags = tags
         self.last_released = parse_datetime(raw['lastreleased'])
-
 
 class Mod:
     def __init__(self, raw:dict, author:User, tags:list[Tag], releases:list[ModRelease], screenshots:list[ModScreenshot]):

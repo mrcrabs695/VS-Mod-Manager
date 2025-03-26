@@ -1,8 +1,14 @@
+import os
+import traceback
+
+from . import moddb_client, thread_pool, user_settings
+from .worker import Worker, WorkerSignals
 from vsmoddb.models import Mod, Comment
 
-from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame
-from PySide6.QtCore import Slot, QSize
+from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox
+from PySide6.QtCore import Slot, QSize, QThread
 from PySide6.QtGui import QPixmap, QColor, QPalette
+from httpx import HTTPStatusError
 
 class ModIndex(QWidget):
     def __init__(self, parent:QWidget|None = None):
@@ -101,16 +107,18 @@ class ModDetail(QScrollArea):
         self.title_label.setText(f"<h1>{self.mod.name}</h1>")
         self.title_label.setObjectName("mod_view_title_label")
         
-        # TODO: will need to replace this with a function to download the image in the background without halting the rest of the update
-        
         self.primary_image.load("data/test.png")
         self.primary_image_widget.setPixmap(self.primary_image.scaledToWidth(560))
         self.primary_image_widget.setMaximumSize(560, 350)
         self.primary_image_widget.setObjectName("mod_view_primary_image")
         
-        placeholder_version = "v1.20.x"
-        self.download_button.setText(f"Install mod for version {placeholder_version}...")
-        self.download_button.pressed.connect(self.download_mod)
+        self.fetch_image_worker = Worker(moddb_client.fetch_to_memory, self.mod.logo_file)
+        self.fetch_image_worker.signals.result.connect(self.load_primary_image)
+        self.fetch_image_worker.signals.error.connect(self.thread_exception)
+        thread_pool.start(self.fetch_image_worker)
+        
+        self.download_button.setText(f"Install mod for version {user_settings.game_version}...")
+        self.download_button.pressed.connect(self.start_mod_download)
         
         for child in self.tags_container.children():
             child.deleteLater()
@@ -143,8 +151,61 @@ class ModDetail(QScrollArea):
         self.mod_description.setObjectName("mod_view_description")
     
     @Slot()
-    def download_mod(self):
-        print("Download function not implemented, have this nice debug message instead :)")
+    def load_primary_image(self, image_data:bytes):
+        try:
+            result = self.primary_image.loadFromData(image_data)
+            if not result:
+                return
+            
+            self.primary_image_widget.setPixmap(self.primary_image.scaledToWidth(560))
+        except:
+            traceback.print_exc()
+        finally:
+            self.fetch_image_worker = None
+    
+    @Slot()
+    def thread_exception(self, exc_tuple:tuple):
+        if self.progress_dialog is not None:
+            self.progress_dialog.close()
+        if not self.download_button.isEnabled():
+            self.download_button.setEnabled(True)
+        
+        dialog = QMessageBox.warning(self, "Error", f"An error occurred while loading the image: {exc_tuple[2]}")
+        dialog.show()
+    
+    def download_mod_finished(self, result:bool):
+        self.download_button.setEnabled(True)
+        self.progress_dialog.close()
+        
+        if not result:
+            dialog = QMessageBox.warning(self, "Download failed", f"Failed to download the mod: {self.mod.name}")
+            dialog.show()
+    
+    @Slot()
+    def start_mod_download(self):
+        self.download_button.setEnabled(False)
+        
+        release_index = 0 # latest release
+        mod_release = self.mod.releases[release_index]
+        download_path = os.path.join(user_settings.mod_download_location, f"{mod_release.filename}")
+        
+        self.progress_dialog = QProgressDialog("Downloading...", "Cancel", 0, 0, self)
+        self.progress_dialog.show()
+        
+        self.download_worker_signals = WorkerSignals()
+        self.download_worker_signals.result.connect(self.download_mod_finished)
+        self.download_worker_signals.error.connect(self.thread_exception)
+        self.download_worker_signals.progress.connect(self.progress_dialog.setValue)
+        
+        self.download_worker = Worker(
+            moddb_client.fetch_to_file,
+            mod_release.main_file,
+            download_path,
+            self.progress_dialog.setMaximum,
+            self.download_worker_signals.progress.emit,
+            signals = self.download_worker_signals
+        )
+        thread_pool.start(self.download_worker)
 
 class HyperTag(QLabel):
     def __init__(self, text:str, bg_color:str = "#333333", tag_color:str = "aqua", text_color:str = "white", parent:QWidget|None = None):

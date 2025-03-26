@@ -1,3 +1,9 @@
+import json
+import pickle
+import time
+import traceback
+import os
+
 from .models import (
     Tag,
     TagType,
@@ -11,7 +17,7 @@ from .models import (
     ModRelease,
     ModScreenshot,
 )
-import json
+
 import httpx
 from PySide6.QtWidgets import QProgressBar, QProgressDialog
 
@@ -48,13 +54,13 @@ class ModDbClient:
 
     def get_api(self, interface: str, get_params: str = None, *args, **kwargs) -> dict:
         request = self.__http_client.build_request(
-            "GET", f"/api/{interface}{"?" + get_params if get_params != None else ""}"
+            "GET", f"/api/{interface}{f"?{get_params}" if get_params != None else ""}"
         )
         response = self.__http_client.send(request)
 
         # response = self.__http_client.get("/api/" + interface, *args, params=get_params, **kwargs)
 
-        print(response.url)
+        # print(response.url)
         response.raise_for_status()
         parsed_response = json.loads(response.text)
         if parsed_response['statuscode'] == '200':
@@ -172,18 +178,31 @@ class ModDbClient:
         mod = Mod(raw_mod, author, tags, releases, screenshots)
         return mod
     
-    def fetch_to_memory(self, url:str) -> bytes:
+    def fetch_to_memory(self, url:str, *args, **kwargs) -> bytes:
         response = self.__http_client.get(url)
+        # print(response.status_code)
         response.raise_for_status()
         return response.content
     
-    def fetch_to_file(self, url:str, file_location:str):
+    def fetch_to_file(self, url:str, file_location:str, start_callback = None, progress_callback = None, end_callback = None):
         try:
-            with open(file_location, 'xb') as file:
+            with open(file_location, 'wb') as file:
                 with self.__http_client.stream("GET", url) as response:
+                    if start_callback:
+                        try:
+                            content_size = int(response.headers.get('content-length'))
+                        except:
+                            start_callback(0)
+                        else:
+                            start_callback(content_size)
                     for chunk in response.iter_bytes():
                         file.write(chunk)
+                        if progress_callback:
+                            progress_callback(len(chunk))
+            if end_callback:
+                end_callback()
         except:
+            traceback.print_exc()
             return False
         return True
     
@@ -216,3 +235,82 @@ class ModDbClient:
             if author.name == name:
                 return author
         return None
+
+
+class CacheManager:
+    def __init__(self, cache_location:str = "") -> None:
+        self.cache_location = cache_location
+        self.cache: dict[str, dict[str, object]] = {} # {key: {'object' or 'expires': object }}
+        
+        self.load_from_file()
+    
+    def get(self, key: str) -> any:
+        if key not in self.cache:
+            return None
+        if time.time() > self.cache[key]['expires']:
+            del self.cache[key]
+            return None
+        
+        return self.cache[key]['object']
+    
+    def set(self, key: str, object: object, expires:int = 15):
+        self.cache[key] = {
+            "object": object,
+            "expires": time.time() + 60 * expires # minutes
+        }
+    
+    def clear(self):
+        self.cache.clear()
+    
+    def save_to_file(self) -> None:
+        with open(os.path.join(self.cache_location, 'cache.dat'), 'wb') as f:
+            pickle.dump(self.cache, f)
+
+    def load_from_file(self) -> None:
+        if not os.path.exists(os.path.join(self.cache_location, 'cache.dat')):
+            return
+        
+        with open(os.path.join(self.cache_location, 'cache.dat'), 'rb') as f:
+            self.cache = pickle.load(f)
+
+
+class CachedModDbClient(ModDbClient):
+    def __init__(self, cache_manager: CacheManager = CacheManager()) -> None:
+        self.cache_manager = cache_manager
+        super().__init__()
+    
+    def get_api(self, interface, get_params = None, *args, **kwargs):
+        key = f"{interface}_{get_params}"
+        cached_response = self.cache_manager.get(key)
+        
+        if cached_response is not None:
+            return cached_response
+        
+        response = super().get_api(interface, get_params, *args, **kwargs)
+        self.cache_manager.set(key, response)
+        
+        return response
+    
+    def fetch_to_memory(self, url, *args, **kwargs):
+        key = f"{url}"
+        cached_response = self.cache_manager.get(key)
+        
+        if cached_response is not None:
+            return cached_response
+        
+        response = super().fetch_to_memory(url, *args, **kwargs)
+        self.cache_manager.set(key, response)
+        
+        return response
+    
+    def fetch_to_file(self, url, file_location, start_callback=None, progress_callback=None, end_callback=None):
+        key = f"{url}_{file_location}"
+        
+        cached_response = self.cache_manager.get(key)
+        if cached_response and os.path.exists(file_location):
+            return True
+        
+        result = super().fetch_to_file(url, file_location, start_callback, progress_callback, end_callback)
+        self.cache_manager.set(key, result)
+        
+        return result
