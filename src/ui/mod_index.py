@@ -7,7 +7,7 @@ from vsmoddb.models import Mod, Comment, ModRelease
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox, QLayout
 from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool
-from PySide6.QtGui import QPixmap, QColor, QPalette
+from PySide6.QtGui import QPixmap, QColor, QPalette, QIcon
 from httpx import HTTPStatusError
 
 # TODO: once the groundwork is done, all the temp style sheets will need to be removed and replaced with a proper app level stylesheet
@@ -202,7 +202,10 @@ class ModReleaseView(QFrame):
         self.download_counter = QLabel(f"<h3>Downloads: {release.downloads}</h3>")
         self.release_date_label = QLabel(f"<h3>Created: {release.created.strftime('%d/%m/%Y, %H:%M:%S')}</h3>")
         self.changelog = QLabel(f"<h3>Changelog:</h3> {release.changelog}")
+        download_icon = QIcon('data/icons/download.svg')
+        download_icon.addFile('data/icons/download-off.svg', mode=QIcon.Mode.Disabled)
         self.download_button = QPushButton("Download")
+        self.download_button.setIcon(download_icon)
         
         layout.addWidget(self.release_title_label, 0, 0, 1, 3)
         layout.addWidget(self.download_counter, 1, 0, 1, 1)
@@ -232,13 +235,16 @@ class ModDetail(QScrollArea):
         self.title_card_container.layout().addWidget(self.primary_image_widget)
         
         self.description_switch = QPushButton()
+        self.description_switch.setIcon(QIcon('data/icons/text-caption.svg'))
         self.description_switch.setText("Description")
         self.description_switch.pressed.connect(self.show_description)
         self.releases_switch = QPushButton()
         self.releases_switch.setText("Releases")
+        self.releases_switch.setIcon(QIcon('data/icons/files.svg'))
         self.releases_switch.pressed.connect(self.show_releases)
         self.comments_switch = QPushButton()
         self.comments_switch.setText("Comments")
+        self.comments_switch.setIcon(QIcon('data/icons/messages.svg'))
         self.comments_switch.pressed.connect(self.show_comments)
         
         self.description_container = QFrame()
@@ -262,6 +268,9 @@ class ModDetail(QScrollArea):
         self.downloads_counter = QLabel()
         self.follow_counter = QLabel()
         self.download_button = QPushButton()
+        download_icon = QIcon('data/icons/download.svg')
+        download_icon.addFile('data/icons/download-off.svg', mode=QIcon.Mode.Disabled)
+        self.download_button.setIcon(download_icon)
         self.download_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         self.mod_description = QLabel()
         self.mod_description.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)

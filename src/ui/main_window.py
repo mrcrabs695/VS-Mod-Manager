@@ -9,7 +9,7 @@ from vsmoddb.client import ModDbClient
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QDialog, QFormLayout, QMessageBox
 from PySide6.QtCore import Slot, Qt
-from PySide6.QtGui import QPixmap, QPalette, QColor
+from PySide6.QtGui import QPixmap, QPalette, QColor, QIcon
 
 
 class FirstLaunchPopup(QWidget):
@@ -119,14 +119,17 @@ class RootView(QWidget):
         mod_index_switch = QPushButton()
         mod_index_switch.pressed.connect(self.show_mod_index)
         mod_index_switch.setText("Mod Index")
+        mod_index_switch.setIcon(QIcon('data/icons/world-download.svg'))
         mod_index_switch.setObjectName("mod_index_switch")
         local_mods_switch = QPushButton()
         local_mods_switch.pressed.connect(self.show_local_mods)
         local_mods_switch.setText("Installed Mods")
+        local_mods_switch.setIcon(QIcon('data/icons/files.svg'))
         local_mods_switch.setObjectName("local_mods_switch")
         settings_switch = QPushButton()
         settings_switch.pressed.connect(self.show_settings)
         settings_switch.setText("Settings")
+        settings_switch.setIcon(QIcon('data/icons/settings.svg'))
         settings_switch.setObjectName("settings_switch")
         
         image = QPixmap()
