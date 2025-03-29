@@ -7,12 +7,12 @@ class WorkerSignals(QObject):
     error = Signal(tuple)
     progress = Signal(int)
     progress_end = Signal(int)
+    progress_start = Signal(int)
 
 class Worker(QRunnable):
     def __init__(self, fn, *args, **kwargs):
         super().__init__()
         if kwargs.get("signals", None) is None:
-            print("WorkerSignals is None")
             self.signals = WorkerSignals()
         else:
             self.signals = kwargs.pop("signals")

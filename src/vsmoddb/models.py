@@ -86,6 +86,28 @@ class Tag:
         self.name:str = name
         self.color:str = color
         self.type = type
+        
+        if self.type == TagType.VERSION:
+            splits = name.removeprefix("v").split(".", 2)
+            
+            try:
+                self.major_version = int(splits[0])
+                self.minor_version = int(splits[1])
+                
+                patch_and_modifier = splits[2].split("-")
+                try:
+                    self.patch_version = int(patch_and_modifier[0])
+                    self.version_modifier = patch_and_modifier[1]
+                except IndexError:
+                    self.patch_version = int(splits[2])
+                    self.version_modifier = None
+                except ValueError: # this pops up when parsing the games older version format, so this is a bit of a band-aid solution
+                    patch_and_modifier = splits[2].split(".")
+                    self.patch_version = int(patch_and_modifier[0])
+                    self.version_modifier = patch_and_modifier[1]
+                
+            except ValueError as e:
+                raise ValueError(f"Invalid version tag: {name}") from e
     
     def __str__(self):
         return f"{self.name} type: {self.type.value}"
@@ -160,3 +182,26 @@ class Mod:
         self.tags = tags
         self.releases = releases
         self.screenshots = screenshots
+    
+    def get_releases_for_version(self, version:Tag, include_pre_release=False, strict_match=False):
+        if version.type != TagType.VERSION:
+            return []
+        
+        releases:list[dict[str, ModRelease | list[Tag]]] = []
+        for release in self.releases:
+            if strict_match and version in release.tags:
+                releases.append(release)
+                continue
+            if include_pre_release:
+                # TODO: this should work, but if any bug pops up with version selection, check back on this
+                release_tags = [tag for tag in release.tags if tag.minor_version == version.minor_version and tag.major_version == version.major_version]
+            else:
+                release_tags = [tag for tag in release.tags if tag.minor_version == version.minor_version and tag.major_version == version.major_version and tag.version_modifier is None]
+            
+            if len(release_tags) < 1:
+                continue
+            
+            releases.append({"release": release, "tags": release_tags})
+        
+        releases.sort(key=lambda x: x["release"].created, reverse=True)
+        return releases

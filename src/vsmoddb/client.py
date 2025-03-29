@@ -108,7 +108,7 @@ class ModDbClient:
 
     def get_comments(self, asset_id: int) -> list[Comment]:
         def e(comments, raw_comment):
-            user = self.user_from_id(raw_comment['user_id'])
+            user = self.user_from_id(raw_comment['userid'])
             comment = Comment(raw_comment, user)
             comments.append(comment)
 
@@ -225,8 +225,8 @@ class ModDbClient:
         return None
 
     def user_from_id(self, id: int) -> User | None:
-        for author in self.author:
-            if author.id == id:
+        for author in self.authors:
+            if author.user_id == id:
                 return author
         return None
 

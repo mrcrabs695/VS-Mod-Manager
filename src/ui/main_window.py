@@ -2,6 +2,9 @@ import os
 
 from . import moddb_client, user_settings
 from .mod_index import HyperTag, ModDetail
+from settings import get_installed_game_version
+from .settings_page import SettingsPage
+
 from vsmoddb.client import ModDbClient
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QDialog, QFormLayout, QMessageBox
@@ -26,7 +29,7 @@ class FirstLaunchPopup(QWidget):
         
         version_texts = [version.name for version in moddb_client.versions]
         try:
-            current_version_index = version_texts.index(moddb_client.tag_from_name('v' + user_settings.game_version))
+            current_version_index = version_texts.index(version_texts.index('v' + user_settings.game_version))
         except ValueError:
             current_version_index = 0
         
@@ -76,7 +79,7 @@ class FirstLaunchPopup(QWidget):
             QMessageBox.warning(self, "Error", f"Mod download location does not exist: {mod_download_location}")
             return
         
-        if user_settings.game_version is not None and game_version != user_settings.game_version:
+        if user_settings.game_version is not None and game_version != get_installed_game_version():
             message_box = QMessageBox()
             message_box.setText(f"Selected game version does not match found game version: {user_settings.game_version}")
             message_box.setInformativeText("Do you want to continue?")
@@ -103,7 +106,7 @@ class RootView(QWidget):
     def __init__(self):
         super().__init__()
         
-        if True:
+        if user_settings.first_launch:
             self.first_launch_popup = FirstLaunchPopup()
             self.first_launch_popup.show()
         
@@ -131,11 +134,12 @@ class RootView(QWidget):
         test_pixmap = QLabel()
         test_pixmap.setPixmap(image)
         mod_detail = ModDetail(mod)
+        self.settings_view = SettingsPage()
         
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(mod_detail)
         self.view_stack.addWidget(test_pixmap)
-        self.view_stack.addWidget(HyperTag("Worldgen", "#333333"))
+        self.view_stack.addWidget(self.settings_view)
         
         root_layout.addWidget(mod_index_switch, 0, 0)
         root_layout.addWidget(local_mods_switch, 0, 1)
