@@ -45,7 +45,10 @@ def locate_user_settings_path():
         return USER_SETTINGS_PATH
 
 def get_installed_game_version():
-    assets_folder = os.path.join(locate_game_path(), "assets")
+    game_path = locate_game_path()
+    if game_path is None:
+        return None
+    assets_folder = os.path.join(game_path, "assets")
     for filename in os.listdir(assets_folder):
         if filename.startswith("version-"):
             return filename.split("-")[1].removesuffix(".txt")
