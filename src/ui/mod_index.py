@@ -3,11 +3,12 @@ import traceback
 
 from . import moddb_client, thread_pool, user_settings
 from .worker import Worker, WorkerSignals
-from vsmoddb.models import Mod, Comment, ModRelease
+from settings import APP_PATH
+from vsmoddb.models import Mod, Comment, ModRelease, PartialMod, SearchOrderBy, SearchOrderDirection
 
-from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox, QLayout
-from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool
-from PySide6.QtGui import QPixmap, QColor, QPalette, QIcon
+from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox, QLayout, QListWidget, QListWidgetItem, QSplitter
+from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool, QRect, QPoint
+from PySide6.QtGui import QPixmap, QColor, QPalette, QIcon, QMouseEvent, Qt
 from httpx import HTTPStatusError
 
 # TODO: once the groundwork is done, all the temp style sheets will need to be removed and replaced with a proper app level stylesheet
@@ -17,7 +18,7 @@ class ModDownloader(QObject):
     #? This could be refactored to handle more then just downloading once the actual mod index widget is created
     def __init__(self, to_disabled_buttons:list[QPushButton] = None, mod_release:ModRelease|list[ModRelease] = None, parent:QWidget|None = None):
         super().__init__(parent=parent)
-        self.to_disabled_buttons = to_disabled_buttons
+        self.to_disabled_buttons = to_disabled_buttons if to_disabled_buttons else []
         self.mod_release = mod_release
         self.download_jobs:list[ModDownloader.DownloadJob] = []
         self.progress_dialog = None
@@ -111,8 +112,9 @@ class ModDownloader(QObject):
         job.signals.progress_start.connect(lambda progress: job.set_progress_start(progress))
     
     def start_download(self):
-        for button in self.disable_buttons:
-            button.setEnabled(False)
+        if self.disable_buttons:
+            for button in self.disable_buttons:
+                button.setEnabled(False)
         
         if not self.progress_dialog:
             self.progress_dialog = QProgressDialog("Downloading...", "Cancel", 0, 0)
@@ -142,9 +144,10 @@ class ModDownloader(QObject):
             else:
                 QMessageBox.information(self.parent(), "Download Complete", f"{self.finished_jobs} mods downloaded", QMessageBox.StandardButton.Ok)
             
-            for button in self.disable_buttons:
-                if not button.isEnabled():
-                    button.setEnabled(True)
+            if self.disable_buttons:
+                for button in self.disable_buttons:
+                    if not button.isEnabled():
+                        button.setEnabled(True)
             
             self.download_jobs.clear()
 
@@ -152,20 +155,281 @@ class ModDownloader(QObject):
 downloader = ModDownloader()
 
 class ModPreview(QFrame):
-    def __init__(self, mod:Mod):
+    def __init__(self, mod:PartialMod, mod_detail: QWidget = None):
         super().__init__()
+        self.mod = mod
+        self.mod_detail_view = mod_detail
+        
+        self.main_layout = QVBoxLayout()
         
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setLineWidth(1)
+        
+        self.logo_image = QPixmap()
+        self.logo_label = QLabel()
+        
+        if self.mod.logo != None and self.mod.logo !=  'None':
+            self.fetch_logo_worker = Worker(moddb_client.fetch_to_memory, self.mod.logo)
+            self.fetch_logo_worker.signals.result.connect(self.load_logo)
+            self.fetch_logo_worker.signals.error.connect(lambda error: self.load_placeholder_logo())
+            thread_pool.start(self.fetch_logo_worker)
+        else:
+            self.logo_image.load('data/test.png')
+            self.logo_label.setPixmap(self.logo_image.scaledToWidth(200))
+        
+        self.title_label = QLabel(mod.name)
+        self.summary_label = QLabel(mod.summary)
+        self.summary_label.setWordWrap(True)
+        self.downloads_label = QLabel(f"Downloads: <b>{mod.downloads}</b>")
+        download_icon = QIcon(os.path.join(APP_PATH, 'data/icons/download.svg'))
+        download_icon.addFile(os.path.join(APP_PATH, 'data/icons/download-off.svg'), mode=QIcon.Mode.Disabled)
+        self.quick_download_button = QPushButton("Download")
+        self.quick_download_button.setIcon(download_icon)
+        self.quick_download_button.clicked.connect(self.download_mod)
+        
+        self.main_layout.addWidget(self.logo_label, 2)
+        self.main_layout.addWidget(self.title_label, 1)
+        self.main_layout.addWidget(self.summary_label, 3)
+        self.main_layout.addWidget(self.downloads_label, 1)
+        self.main_layout.addWidget(self.quick_download_button, 1)
+        self.setLayout(self.main_layout)
+        
+    
+    @Slot()
+    def load_logo(self, image_data:bytes):
+        try:
+            result = self.logo_image.loadFromData(image_data)
+            if not result:
+                return
+            
+            self.logo_label.setPixmap(self.logo_image.scaledToWidth(280))
+        except:
+            traceback.print_exc()
+        finally:
+            self.fetch_logo_worker = None
+    
+    @Slot()
+    def load_placeholder_logo(self):
+        self.logo_image.load(os.path.join(APP_PATH, "data/test.png"))
+        self.logo_label.setPixmap(self.logo_image.scaledToWidth(200))
+    
+    @Slot()
+    def download_mod(self):
+        full_mod = moddb_client.get_mod(self.mod.mod_id)
+        downloader.download_mod_single(full_mod.releases[0])
+    
+    def mousePressEvent(self, event:QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+            event.accept()
+            print(self.mod.url_alias)
+            if self.mod_detail_view != None:
+                self.mod_detail_view.update_mod(moddb_client.get_mod(self.mod.mod_id))
+                self.mod_detail_view.show()
+
+class FlowLayout(QLayout):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        
+        if parent is not None:
+            self.setContentsMargins(0, 0, 0, 0)
+        
+        self._item_list = []
+    
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+    
+    def addItem(self, item):
+        self._item_list.append(item)
+    
+    def count(self):
+        return len(self._item_list)
+    
+    def itemAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list[index]
+        
+        return None
+    
+    def takeAt(self, index):
+        if 0 <= index < len(self._item_list):
+            return self._item_list.pop(index)
+        
+        return None
+    
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+    
+    def hasHeightForWidth(self):
+        return True
+    
+    def heightForWidth(self, width):
+        height = self._do_layout(QRect(0, 0, width, 0), True)
+        return height
+    
+    def setGeometry(self, rect):
+        super(FlowLayout, self).setGeometry(rect)
+        self._do_layout(rect, False)
     
     def sizeHint(self):
-        return self.layout().minimumSize()
+        return self.minimumSize()
+    
+    def minimumSize(self):
+        size = QSize()
+        for item in self._item_list:
+            size = size.expandedTo(item.minimumSize())
+        
+        size += QSize(2 * self.contentsMargins().top(), 2 * self.contentsMargins().top())
+        return size
+    
+    def _do_layout(self, rect, test_only):
+        x = rect.x()
+        y = rect.y()
+        line_height = 0
+        spacing = self.spacing()
+        
+        for item in self._item_list:
+            style = item.widget().style()
+            layout_spacing_x = style.layoutSpacing(
+                QSizePolicy.ControlType.PushButton,
+                QSizePolicy.ControlType.PushButton,
+                Qt.Orientation.Horizontal
+            )
+            layout_spacing_y = style.layoutSpacing(
+                QSizePolicy.ControlType.PushButton,
+                QSizePolicy.ControlType.PushButton,
+                Qt.Orientation.Vertical
+            )
+            space_x = spacing + layout_spacing_x
+            space_y = spacing + layout_spacing_y
+            next_x = x + item.sizeHint().width() + space_x
+            if next_x - space_x > rect.right() and line_height > 0:
+                x = rect.x()
+                y = y + line_height + space_y
+                next_x = x + item.sizeHint().width() + space_x
+                line_height = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+            
+            x = next_x
+            line_height = max(line_height, item.sizeHint().height())
+        
+        return y + line_height - rect.y()
 
-class ModIndex(QWidget):
+
+class ModIndex(QSplitter):
     def __init__(self, parent:QWidget|None = None):
         super().__init__(parent=parent)
         
-        self.setLayout(QGridLayout())
+        self.main_layout = QGridLayout()
+        self.search_buttons_enabled = True
+        self.mods = []
+        self.mods_shown = 0
+        
+        self.text_search_box = QLineEdit(placeholderText="Search mods by name or description")
+        self.text_search_box.returnPressed.connect(self.search_mods)
+        self.search_sort = QComboBox()
+        self.search_options = [SearchOrderBy.TRENDING, SearchOrderBy.DOWNLOADS, SearchOrderBy.COMMENTS, SearchOrderBy.FOLLOWS, SearchOrderBy.CREATED, SearchOrderBy.LAST_RELEASED]
+        self.search_sort.addItems(["Trending", "Downloads", "Comments", "Follows", "Created", "Last Released"])
+        self.search_sort.setCurrentIndex(0)
+        self.search_order = QComboBox()
+        self.search_order.addItems(["asc", "desc"])
+        self.search_order.setCurrentIndex(1)
+        self.search_button = QPushButton("Search")
+        self.search_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/input-search.svg')))
+        self.search_button.clicked.connect(self.search_mods)
+        
+        self.extra_search_container = QFrame()
+        extra_search_layout = QHBoxLayout()
+        
+        # TODO: extra search widgets
+        
+        self.extra_search_container.setLayout(extra_search_layout)
+        
+        self.result_number = QLabel()
+        self.result_number.hide()
+        
+        self.mods_list = QFrame()
+        self.mods_list_layout = FlowLayout()
+        self.mods_list.setLayout(self.mods_list_layout)
+        self.load_more_mods_button = QPushButton("Load More Mods...")
+        self.load_more_mods_button.clicked.connect(lambda clicked: self.update_mods_list())
+        
+        self.main_layout.addWidget(self.text_search_box, 0, 0, 1, 3)
+        self.main_layout.addWidget(self.search_sort, 0, 3, 1, 1)
+        self.main_layout.addWidget(self.search_order, 0, 4, 1, 1)
+        self.main_layout.addWidget(self.search_button, 0, 5, 1, 1)
+        self.main_layout.addWidget(self.extra_search_container, 1, 0, 1, 6)
+        self.main_layout.addWidget(self.result_number, 2, 0, 1, 1)
+        self.main_layout.addWidget(self.mods_list, 3, 0, 6, 6)
+        
+        self.mod_detail_view = ModDetail()
+        self.mod_detail_view.hide()
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.main_layout_cont = QFrame()
+        self.main_layout_cont.setLayout(self.main_layout)
+        self.scroll_area.setWidget(self.main_layout_cont)
+        self.addWidget(self.scroll_area)
+        self.addWidget(self.mod_detail_view)
+    
+    @Slot()
+    def search_mods(self):
+        if self.search_buttons_enabled:
+            self.search_button.setEnabled(False)
+            self.search_order.setEnabled(False)
+            self.search_sort.setEnabled(False)
+            self.search_buttons_enabled = False
+        
+        search_order:SearchOrderBy = self.search_options[self.search_sort.currentIndex()]
+        order_direction:SearchOrderDirection = SearchOrderDirection[self.search_order.currentText().upper()]
+        search_query:str = self.text_search_box.text()
+        
+        current_version_tag = moddb_client.tag_from_name('v' + user_settings.game_version)
+        matching_versions = [tag.id for tag in moddb_client.versions if tag.minor_version == current_version_tag.minor_version and tag.major_version == current_version_tag.major_version]
+        
+        self.search_worker = Worker(moddb_client.get_mods, text=search_query, orderby=search_order, order_direction=order_direction, versions=matching_versions)
+        self.search_worker.signals.result.connect(self.update_mods_list)
+        self.search_worker.signals.error.connect(lambda error: QMessageBox.critical(self, "Error", error[2]))
+        thread_pool.start(self.search_worker)
+    
+    @Slot()
+    def update_mods_list(self, mods:list[Mod] = None):
+        if not self.search_buttons_enabled:
+            self.search_button.setEnabled(True)
+            self.search_order.setEnabled(True)
+            self.search_sort.setEnabled(True)
+            self.search_buttons_enabled = True
+        
+        if mods is not None or len(self.mods) < 1:
+            for widget in self.mods_list.children():
+                if isinstance(widget, ModPreview):
+                    try:
+                        downloader.disable_buttons.remove(widget.quick_download_button)
+                    except:
+                        pass
+                    widget.deleteLater()
+                elif isinstance(widget, QPushButton):
+                    self.mods_list_layout.removeWidget(widget)
+            self.mods_shown = 0
+            self.mods = mods
+        
+        previous_shown = self.mods_shown
+        self.mods_shown += 100
+        print(self.mods_shown)
+        mods_to_add = self.mods[previous_shown:self.mods_shown]
+        
+        for mod in mods_to_add:
+            widget = ModPreview(mod, self.mod_detail_view)
+            downloader.disable_buttons.append(widget.quick_download_button)
+            self.mods_list_layout.addWidget(widget)
+        
+        if mods is not None:
+            self.result_number.setText(f"{len(self.mods)} results found.")
+            self.result_number.show()
+        self.mods_list_layout.addWidget(self.load_more_mods_button)
+        self.scroll_area.updateGeometry()
 
 
 class CommentView(QFrame):
@@ -202,8 +466,8 @@ class ModReleaseView(QFrame):
         self.download_counter = QLabel(f"<h3>Downloads: {release.downloads}</h3>")
         self.release_date_label = QLabel(f"<h3>Created: {release.created.strftime('%d/%m/%Y, %H:%M:%S')}</h3>")
         self.changelog = QLabel(f"<h3>Changelog:</h3> {release.changelog}")
-        download_icon = QIcon('data/icons/download.svg')
-        download_icon.addFile('data/icons/download-off.svg', mode=QIcon.Mode.Disabled)
+        download_icon = QIcon(os.path.join(APP_PATH, 'data/icons/download.svg'))
+        download_icon.addFile(os.path.join(APP_PATH, 'data/icons/download-off.svg'), mode=QIcon.Mode.Disabled)
         self.download_button = QPushButton("Download")
         self.download_button.setIcon(download_icon)
         
@@ -216,7 +480,7 @@ class ModReleaseView(QFrame):
         self.setLayout(layout)
 
 class ModDetail(QScrollArea):
-    def __init__(self, mod:Mod, parent:QWidget|None = None):
+    def __init__(self, mod:Mod = None, parent:QWidget|None = None):
         super().__init__(parent=parent)
         self.setWidgetResizable(True)
         downloader.setParent(self)
@@ -235,16 +499,16 @@ class ModDetail(QScrollArea):
         self.title_card_container.layout().addWidget(self.primary_image_widget)
         
         self.description_switch = QPushButton()
-        self.description_switch.setIcon(QIcon('data/icons/text-caption.svg'))
+        self.description_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/text-caption.svg')))
         self.description_switch.setText("Description")
         self.description_switch.pressed.connect(self.show_description)
         self.releases_switch = QPushButton()
         self.releases_switch.setText("Releases")
-        self.releases_switch.setIcon(QIcon('data/icons/files.svg'))
+        self.releases_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/files.svg')))
         self.releases_switch.pressed.connect(self.show_releases)
         self.comments_switch = QPushButton()
         self.comments_switch.setText("Comments")
-        self.comments_switch.setIcon(QIcon('data/icons/messages.svg'))
+        self.comments_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/messages.svg')))
         self.comments_switch.pressed.connect(self.show_comments)
         
         self.description_container = QFrame()
@@ -268,8 +532,8 @@ class ModDetail(QScrollArea):
         self.downloads_counter = QLabel()
         self.follow_counter = QLabel()
         self.download_button = QPushButton()
-        download_icon = QIcon('data/icons/download.svg')
-        download_icon.addFile('data/icons/download-off.svg', mode=QIcon.Mode.Disabled)
+        download_icon = QIcon(os.path.join(APP_PATH, 'data/icons/download.svg'))
+        download_icon.addFile(os.path.join(APP_PATH, 'data/icons/download-off.svg'), mode=QIcon.Mode.Disabled)
         self.download_button.setIcon(download_icon)
         self.download_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         self.mod_description = QLabel()
@@ -296,7 +560,8 @@ class ModDetail(QScrollArea):
         self.root_container.layout().addWidget(self.releases_container, 3, 0, 1, 3)
         self.root_container.layout().addWidget(self.comments_container, 4, 0, 1, 3)
         
-        self.update_mod(mod)
+        if mod is not None:
+            self.update_mod(mod)
         self.setWidget(self.root_container)
     
     def sizeHint(self):
@@ -343,7 +608,7 @@ class ModDetail(QScrollArea):
         self.title_label.setText(f"<h1>{self.mod.name}</h1>")
         self.title_label.setObjectName("mod_view_title_label")
         
-        self.primary_image.load("data/test.png")
+        self.primary_image.load(os.path.join(APP_PATH, "data/test.png"))
         self.primary_image_widget.setPixmap(self.primary_image.scaledToWidth(560))
         self.primary_image_widget.setMaximumSize(560, 350)
         self.primary_image_widget.setObjectName("mod_view_primary_image")
@@ -357,8 +622,9 @@ class ModDetail(QScrollArea):
         self.download_button.clicked.connect(lambda checked: downloader.download_mod_single(self.supported_releases[0]['release']))
         to_disable_buttons.append(self.download_button)
         
-        # for child in self.tags_container.children():
-        #     child.deleteLater()
+        for child in self.tags_container.children():
+            if isinstance(child, QLabel) or isinstance(child, HyperTag):
+                child.deleteLater()
         tags_prefix = QLabel()
         tags_prefix.setText("<h2>Tags: </h2>")
         self.tags_container.layout().addWidget(tags_prefix)
@@ -393,10 +659,10 @@ class ModDetail(QScrollArea):
         self.mod_description.setText(mod.description)
         self.mod_description.setObjectName("mod_view_description")
         
-        # for child in self.releases_container.children():
-        #     child.deleteLater()
+        for child in self.releases_container.children():
+            if isinstance(child, ModReleaseView):
+                child.deleteLater()
         
-        print(len(self.supported_releases))
         for i, release in enumerate(self.supported_releases):
             release_widget = ModReleaseView(release['release'])
             release_widget.download_button.clicked.connect(lambda clicked, release=release['release']: downloader.download_mod_single(release))
@@ -431,28 +697,31 @@ class ModDetail(QScrollArea):
             self.load_more_comments = QPushButton("Load more comments...")
             self.load_more_comments.clicked.connect(self.load_comments)
             
+            previous_displayed = self.displayed_comments
             self.displayed_comments += 100
             try:
-                comments_to_add = comments[:self.displayed_comments]
+                comments_to_add = comments[previous_displayed:self.displayed_comments]
             except:
                 comments_to_add = []
         
         else:
+            previous_displayed = self.displayed_comments
             self.displayed_comments += 100
-            comments_to_add = self.comments[:self.displayed_comments]
+            comments_to_add = self.comments[previous_displayed:self.displayed_comments]
             self.comments_container.layout().removeWidget(self.load_more_comments)
         
         for comment in comments_to_add:
             self.comments_container.layout().addWidget(CommentView(comment))
         
         self.comments_container.layout().addWidget(self.load_more_comments)
-        self.comments_container.updateGeometry()
+        self.updateGeometry()
     
     @Slot()
     def thread_exception(self, exc_tuple:tuple):
         if not self.download_button.isEnabled():
             self.download_button.setEnabled(True)
-        
+        if isinstance(exc_tuple[0], HTTPStatusError):
+            return
         dialog = QMessageBox.warning(self, "Error", f"An error occurred while loading the image: {exc_tuple[2]}")
         dialog.show()
 

@@ -18,6 +18,13 @@ elif sys.platform == "linux":
 else:
     raise NotImplementedError(f"Unsupported platform: {sys.platform}")
 
+if hasattr(sys, 'frozen') and hasattr(sys, '_MEIPASS'):
+    # Running as a bundled executable
+    APP_PATH = sys._MEIPASS
+else:
+    # Running as a script
+    APP_PATH = os.path.curdir
+print(APP_PATH)
 
 def locate_game_path():
     for path in GAME_SEARCH_PATHS:
@@ -50,12 +57,14 @@ DEFAULTS = {
         "path": locate_game_path(),
         "version": get_installed_game_version(),
         "data_path": locate_game_data_path(),
-        "current_installed_mods": [], # not including base game mods
+        "current_enabled_mods": [], # not including base game mods
     },
     "mod_manager": {
         "download_location": os.path.join(USER_SETTINGS_PATH, "mods"),
         "cache_location": os.path.join(USER_SETTINGS_PATH, "cache"),
         "first_launch": True,
+        "downloaded_mods": [],
+        "profiles": [],
     }
 }
 
@@ -99,11 +108,14 @@ class UserSettings:
                 "path": self.game_path,
                 "version": self.game_version,
                 "data_path": self.game_data_path,
+                "current_enabled_mods": self.current_enabled_mods,
             },
             "mod_manager": {
                 "download_location": self.mod_download_location,
                 "cache_location": self.cache_location,
                 "first_launch": self.first_launch,
+                "downloaded_mods": self.downloaded_mods,
+                "profiles": self.profiles,
             }
         }
     
@@ -118,11 +130,13 @@ class UserSettings:
         self._game_path = game_section.get('path', "")
         self._game_version = game_section.get('version', "")
         self._game_data_path = game_section.get('data_path', "")
-        self._current_installed_mods = game_section.get('current_installed_mods', [])
+        self._current_enabled_mods = game_section.get('current_enabled_mods', [])
 
         self._first_launch = mod_section.get('first_launch', DEFAULTS['mod_manager']['first_launch'])
         self._mod_download_location = mod_section.get('download_location', DEFAULTS['mod_manager']['download_location'])
         self._cache_location = mod_section.get('cache_location', DEFAULTS['mod_manager']['cache_location'])
+        self._downloaded_mods = mod_section.get('downloaded_mods', [])
+        self._profiles = mod_section.get('profiles', [])
     
     def load_from_file(self) -> bool:
         raw = get_user_settings()
@@ -164,12 +178,12 @@ class UserSettings:
         self._game_data_path = value
     
     @property
-    def current_installed_mods(self) -> list[str]:
-        return self._current_installed_mods
+    def current_enabled_mods(self) -> list[str]:
+        return self._current_enabled_mods
     
-    @current_installed_mods.setter
-    def current_installed_mods(self, value:list[str]):
-        self._current_installed_mods = value
+    @current_enabled_mods.setter
+    def current_enabled_mods(self, value:list[str]):
+        self._current_enabled_mods = value
     
     @property
     def first_launch(self) -> bool:
@@ -190,3 +204,19 @@ class UserSettings:
     @property
     def cache_location(self):
         return self._cache_location
+    
+    @property
+    def downloaded_mods(self) -> list[str]:
+        return self._downloaded_mods
+    
+    @downloaded_mods.setter
+    def downloaded_mods(self, value:list[str]):
+        self._downloaded_mods = value
+    
+    @property
+    def profiles(self) -> list:
+        return self._profiles
+    
+    @profiles.setter
+    def profiles(self, value:list):
+        self._profiles = value

@@ -1,8 +1,8 @@
 import os
 
 from . import moddb_client, user_settings
-from .mod_index import HyperTag, ModDetail
-from settings import get_installed_game_version
+from .mod_index import HyperTag, ModDetail, ModIndex
+from settings import get_installed_game_version, APP_PATH
 from .settings_page import SettingsPage
 
 from vsmoddb.client import ModDbClient
@@ -119,24 +119,24 @@ class RootView(QWidget):
         mod_index_switch = QPushButton()
         mod_index_switch.pressed.connect(self.show_mod_index)
         mod_index_switch.setText("Mod Index")
-        mod_index_switch.setIcon(QIcon('data/icons/world-download.svg'))
+        mod_index_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/world-download.svg')))
         mod_index_switch.setObjectName("mod_index_switch")
         local_mods_switch = QPushButton()
         local_mods_switch.pressed.connect(self.show_local_mods)
         local_mods_switch.setText("Installed Mods")
-        local_mods_switch.setIcon(QIcon('data/icons/files.svg'))
+        local_mods_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/files.svg')))
         local_mods_switch.setObjectName("local_mods_switch")
         settings_switch = QPushButton()
         settings_switch.pressed.connect(self.show_settings)
         settings_switch.setText("Settings")
-        settings_switch.setIcon(QIcon('data/icons/settings.svg'))
+        settings_switch.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/settings.svg')))
         settings_switch.setObjectName("settings_switch")
         
         image = QPixmap()
         image.load("data/test.png")
         test_pixmap = QLabel()
         test_pixmap.setPixmap(image)
-        mod_detail = ModDetail(mod)
+        mod_detail = ModIndex()
         self.settings_view = SettingsPage()
         
         self.view_stack = QStackedWidget()

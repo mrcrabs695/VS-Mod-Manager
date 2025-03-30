@@ -42,14 +42,15 @@ class ModDbClient:
     def construct_get_params(self, options: dict[str, list[str] | str]) -> str:
         result = ""
         for key, item in options.items():
-            if item == None:
+            if item == None or item == [] or item == '':
                 continue
-            if isinstance(item, list):
+            elif isinstance(item, list):
                 for inner_item in item:
                     result += key + "=" + str(inner_item) + "&"
             else:
                 result += key + "=" + str(item) + "&"
-        result.removesuffix("&")
+        result = result.removesuffix("&")
+        print(result)
         return result
 
     def get_api(self, interface: str, get_params: str = None, *args, **kwargs) -> dict:
@@ -128,8 +129,8 @@ class ModDbClient:
         versions: list[Tag] = None,
         author: User = None,
         text: str = None,
-        orderby: SearchOrderBy = None,
-        order_direction: SearchOrderDirection = None,
+        orderby: SearchOrderBy = SearchOrderBy.TRENDING,
+        order_direction: SearchOrderDirection = SearchOrderDirection.DESC,
     ):
         def e(mods, raw_mod):
             mod_author = self.user_from_name(raw_mod['author'])
@@ -140,7 +141,7 @@ class ModDbClient:
             mods.append(mod)
 
         params = {
-            "tagids[]": mod_tags,
+            "tagids[]": mod_tags if mod_tags != None else None,
             "gv": version.id if version != None else None,
             "gameversions[]": versions,
             "author": author.user_id if author != None else None,
@@ -150,6 +151,7 @@ class ModDbClient:
                 order_direction.value if order_direction != None else None
             ),
         }
+        print(params)
 
         return self.get_list_like(
             "mods", "mods", e, get_params=self.construct_get_params(params)
@@ -263,6 +265,19 @@ class CacheManager:
         self.cache.clear()
     
     def save_to_file(self) -> None:
+        to_remove = []
+        for key, value in self.cache.items():
+            if time.time() > value['expires']:
+                to_remove.append(key)
+            if key.endswith('.png'):
+                to_remove.append(key)
+        
+        for item in to_remove:
+            try:
+                del self.cache[item]
+            except KeyError:
+                pass
+        
         with open(os.path.join(self.cache_location, 'cache.dat'), 'wb') as f:
             pickle.dump(self.cache, f)
 

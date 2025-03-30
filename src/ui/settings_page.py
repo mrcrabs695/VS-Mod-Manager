@@ -2,13 +2,13 @@ import os
 import traceback
 
 from . import moddb_client, thread_pool, user_settings
-from settings import locate_user_settings_path, get_installed_game_version
+from settings import locate_user_settings_path, get_installed_game_version, APP_PATH
 from .worker import Worker, WorkerSignals
 from vsmoddb.models import Mod, Comment, ModRelease
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox, QFormLayout
 from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool, QUrl
-from PySide6.QtGui import QPixmap, QColor, QPalette, QDesktopServices
+from PySide6.QtGui import QPixmap, QColor, QPalette, QDesktopServices, QIcon
 from httpx import HTTPStatusError
 
 # TODO: this is very similar to the first time launch popup as of now since there is not many settings to be changed
@@ -18,10 +18,12 @@ class SettingsPage(QWidget):
         super().__init__()
         self.setLayout(QVBoxLayout())
         self.open_settings_folder_button = QPushButton("Open Settings Folder")
+        self.open_settings_folder_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/folder.svg')))
         self.open_settings_folder_button.setMaximumSize(200, 30)
         self.open_settings_folder_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(locate_user_settings_path())))
         
         self.reset_cache_button = QPushButton("Reset Cache")
+        self.reset_cache_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/refresh.svg')))
         self.reset_cache_button.setMaximumSize(200, 30)
         self.reset_cache_button.clicked.connect(lambda: moddb_client.cache_manager.clear())
         self.layout().addWidget(self.open_settings_folder_button)
@@ -96,7 +98,7 @@ class SettingsPage(QWidget):
         
         if user_settings.game_version is not None and game_version != get_installed_game_version():
             message_box = QMessageBox()
-            message_box.setText(f"Selected game version does not match found game version: {user_settings.game_version}")
+            message_box.setText(f"Selected game version does not match found game version: {get_installed_game_version()}")
             message_box.setInformativeText("Do you want to continue?")
             message_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Default)
             message_box.setDefaultButton(QMessageBox.Yes)
