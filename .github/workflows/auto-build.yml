@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install poetry pyinstaller
           poetry install --no-root
-          poetry run pyinstaller src/main.py --add-data data:data --single-file
+          poetry run pyinstaller src/main.py --add-data data:data --onefile
           mkdir release
           mv dist/* release/
       - uses: actions/upload-artifact@v4
