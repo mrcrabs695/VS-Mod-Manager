@@ -29,18 +29,15 @@ jobs:
       - uses: ihiroky/archive-action@v1
         with:
           root_dir: release/
-          file_path: vs_mod_manger-$env:RUNNER_OS.zip
+          file_path: vs_mod_manger-${{ runner.os }}zip
       - uses: actions/upload-artifact@v4
         with:
-          name: build-${{ matrix.os }}
-          path: vs_mod_manger-$env:RUNNER_OS.zip
+          name: build-${{ runner.os }}
+          path: vs_mod_manger-${{ runner.os }}.zip
   release:
     name: Release
     runs-on: ubuntu-latest
     needs: build
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
     steps:
       - run: mkdir releases
       - uses: actions/download-artifact@v4
