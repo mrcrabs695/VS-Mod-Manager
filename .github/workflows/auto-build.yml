@@ -22,7 +22,7 @@ jobs:
       - name: install dependencies and freeze
         run: |
           pip install poetry pyinstaller
-          poetry install
+          poetry install --no-root
           poetry run pyinstaller src/main.py --add-data data:data --single-file
           mkdir release
           mv dist/* release/
