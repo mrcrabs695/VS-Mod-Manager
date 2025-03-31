@@ -5,7 +5,7 @@ description = "Mod manager for Vintage Story"
 authors = [
     {name = "mrcrabs695",email = "bringleberry@proton.me"}
 ]
-license = {text = "MIT"}
+license = "LICENSE"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
