@@ -114,14 +114,15 @@ class Tag:
 
 
 class ModRelease:
-    def __init__(self, raw:dict, tags:list[Tag]):
+    def __init__(self, raw:dict, tags:list[Tag], parent_mod_id:int):
         self.release_id = int(raw['releaseid'])
         self.main_file = str(raw['mainfile'])
         self.filename = str(raw['filename'])
         self.file_id = int(raw['fileid'])
         self.downloads = int(raw['downloads'])
         self.tags = tags
-        self.mod_id = str(raw['modidstr'])
+        self.mod_id_str = str(raw['modidstr'])
+        self.mod_id = parent_mod_id
         self.mod_version = str(raw['modversion'])
         self.created = parse_datetime(raw['created'])
         self.changelog = str(raw['changelog'])

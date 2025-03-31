@@ -50,7 +50,6 @@ class ModDbClient:
             else:
                 result += key + "=" + str(item) + "&"
         result = result.removesuffix("&")
-        print(result)
         return result
 
     def get_api(self, interface: str, get_params: str = None, *args, **kwargs) -> dict:
@@ -58,11 +57,8 @@ class ModDbClient:
             "GET", f"/api/{interface}{f"?{get_params}" if get_params != None else ""}"
         )
         response = self.__http_client.send(request)
-
-        # response = self.__http_client.get("/api/" + interface, *args, params=get_params, **kwargs)
-
-        # print(response.url)
         response.raise_for_status()
+        
         parsed_response = json.loads(response.text)
         if parsed_response['statuscode'] == '200':
             return parsed_response
@@ -151,7 +147,6 @@ class ModDbClient:
                 order_direction.value if order_direction != None else None
             ),
         }
-        print(params)
 
         return self.get_list_like(
             "mods", "mods", e, get_params=self.construct_get_params(params)
@@ -171,7 +166,7 @@ class ModDbClient:
             release_tags = []
             for tag in release['tags']:
                 release_tags.append(self.tag_from_name(tag))
-            releases.append(ModRelease(release, release_tags))
+            releases.append(ModRelease(release, release_tags, raw_mod['modid']))
 
         screenshots = []
         for screenshot in raw_mod['screenshots']:
@@ -182,7 +177,6 @@ class ModDbClient:
     
     def fetch_to_memory(self, url:str, *args, **kwargs) -> bytes:
         response = self.__http_client.get(url)
-        # print(response.status_code)
         response.raise_for_status()
         return response.content
     
@@ -263,6 +257,7 @@ class CacheManager:
     
     def clear(self):
         self.cache.clear()
+        self.save_to_file()
     
     def save_to_file(self) -> None:
         to_remove = []

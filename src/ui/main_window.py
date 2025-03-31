@@ -110,8 +110,6 @@ class RootView(QWidget):
             self.first_launch_popup = FirstLaunchPopup()
             self.first_launch_popup.show()
         
-        mod = moddb_client.get_mod("primitivesurvival")
-        
         root_layout = QGridLayout(self)
         root_layout.setObjectName("root_layout")
         

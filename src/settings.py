@@ -9,9 +9,10 @@ if sys.platform == "win32":
     GAME_DATA_PATH = os.path.join(os.environ['APPDATA'], 'VintagestoryData')
     USER_SETTINGS_PATH = os.path.join(os.environ['APPDATA'], "VsModManager")
 elif sys.platform == "linux":
-    GAME_SEARCH_PATHS = [ #? this should cover most game installs, but this may need to be modified depending on the game install method
+    GAME_SEARCH_PATHS = [ #? this should cover most game installs, but this may need to be modified depending on the game install method (perhaps add a way to manually specify the search paths?)
         "/usr/share/vintagestory/",
         os.path.expanduser("~/.local/share/vintagestory/")
+        # TODO: add install directory for flatpak users
     ]
     GAME_DATA_PATH = os.path.expanduser("~/.config/VintagestoryData")
     USER_SETTINGS_PATH = os.path.expanduser("~/.local/share/VsModManager")
@@ -24,7 +25,6 @@ if hasattr(sys, 'frozen') and hasattr(sys, '_MEIPASS'):
 else:
     # Running as a script
     APP_PATH = os.path.curdir
-print(APP_PATH)
 
 def locate_game_path():
     for path in GAME_SEARCH_PATHS:
@@ -66,7 +66,7 @@ DEFAULTS = {
         "download_location": os.path.join(USER_SETTINGS_PATH, "mods"),
         "cache_location": os.path.join(USER_SETTINGS_PATH, "cache"),
         "first_launch": True,
-        "downloaded_mods": [],
+        "downloaded_mods": {},
         "profiles": [],
     }
 }
@@ -138,7 +138,7 @@ class UserSettings:
         self._first_launch = mod_section.get('first_launch', DEFAULTS['mod_manager']['first_launch'])
         self._mod_download_location = mod_section.get('download_location', DEFAULTS['mod_manager']['download_location'])
         self._cache_location = mod_section.get('cache_location', DEFAULTS['mod_manager']['cache_location'])
-        self._downloaded_mods = mod_section.get('downloaded_mods', [])
+        self._downloaded_mods = mod_section.get('downloaded_mods', {})
         self._profiles = mod_section.get('profiles', [])
     
     def load_from_file(self) -> bool:
@@ -209,11 +209,11 @@ class UserSettings:
         return self._cache_location
     
     @property
-    def downloaded_mods(self) -> list[str]:
+    def downloaded_mods(self) -> dict[str, str]:
         return self._downloaded_mods
     
     @downloaded_mods.setter
-    def downloaded_mods(self, value:list[str]):
+    def downloaded_mods(self, value:dict[str, str]):
         self._downloaded_mods = value
     
     @property
