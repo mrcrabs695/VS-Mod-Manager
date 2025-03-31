@@ -26,10 +26,14 @@ jobs:
           poetry run pyinstaller src/main.py --add-data data:data --onefile
           mkdir release
           mv dist/* release/
+      - uses: ihiroky/archive-action@v1
+        with:
+          root_dir: release/
+          file_path: vs_mod_manger-$env:RUNNER_OS.zip
       - uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
-          path: release/
+          path: vs_mod_manger-$env:RUNNER_OS.zip
   release:
     name: Release
     runs-on: ubuntu-latest
@@ -42,12 +46,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: releases/
-      - uses: montudor/action-zip@v1
-        with:
-          args: zip -qq -r vs_mod_manger-${{ matrix.os }}.zip release/build-${{ matrix.os }}/
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            vs_mod_manger-${{ matrix.os }}.zip
-    
+            releases/vs_mod_manger-Windows.zip
+            releases/vs_mod_manger-Linux.zip
