@@ -34,18 +34,8 @@ jobs:
         with:
           name: vs_mod_manger-${{ runner.os }}
           path: vs_mod_manger-${{ runner.os }}.zip
-  release:
-    name: Release
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - run: mkdir releases
-      - uses: actions/download-artifact@v4
-        with:
-          path: releases/
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            releases/vs_mod_manger-Windows.zip
-            releases/vs_mod_manger-Linux.zip
+            vs_mod_manger-${{ runner.os }}.zip
