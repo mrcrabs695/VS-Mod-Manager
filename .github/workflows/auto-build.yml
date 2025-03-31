@@ -29,7 +29,7 @@ jobs:
       - uses: ihiroky/archive-action@v1
         with:
           root_dir: release/
-          file_path: vs_mod_manger-${{ runner.os }}zip
+          file_path: vs_mod_manger-${{ runner.os }}.zip
       - uses: actions/upload-artifact@v4
         with:
           name: build-${{ runner.os }}
