@@ -146,9 +146,9 @@ class ModDownloader(QObject):
         
         if self.finished_jobs == self.total_jobs:
             self.progress_dialog.close()
-            if self.failed_jobs > 0 and self.total_jobs > 1:
+            if self.failed_jobs > 0 and self.total_jobs > 10:
                 QMessageBox.warning(self.parent(), "Download Complete", f" {self.finished_jobs} mods downloaded and {self.failed_jobs} mods failed to download\n Failed to download: {[job.filename + "\n" for job in self.gather_failed_jobs]}", QMessageBox.StandardButton.Ok)
-            elif self.total_jobs > 1:
+            elif self.total_jobs > 10:
                 QMessageBox.information(self.parent(), "Download Complete", f"{self.finished_jobs} mods downloaded", QMessageBox.StandardButton.Ok)
             
             if self.disable_buttons:

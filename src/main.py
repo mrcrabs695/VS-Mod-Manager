@@ -10,6 +10,7 @@ from PySide6.QtCore import Slot
 class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        user_settings.main_window = self
         root_view = RootView()
         self.setCentralWidget(root_view)
         
@@ -23,7 +24,6 @@ def shutdown():
 if __name__ == "__main__":
     app = QApplication([])
     widget = MainWindow()
-    widget.show()
     app.aboutToQuit.connect(shutdown)
     sys.exit(app.exec())
     

@@ -3,7 +3,7 @@ import os
 import json
 
 if sys.platform == "win32":
-    GAME_SEARCH_PATHS = [ #? i think this is the default location for windows users, may need to double check that however
+    GAME_SEARCH_PATHS = [
         os.path.join(os.environ['APPDATA'], 'Vintagestory')
     ]
     GAME_DATA_PATH = os.path.join(os.environ['APPDATA'], 'VintagestoryData')
