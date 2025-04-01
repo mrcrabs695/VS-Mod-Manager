@@ -24,6 +24,7 @@ def shutdown():
 if __name__ == "__main__":
     app = QApplication([])
     widget = MainWindow()
+    widget.resize(800, 600)  # Set the initial window size
     app.aboutToQuit.connect(shutdown)
     sys.exit(app.exec())
     

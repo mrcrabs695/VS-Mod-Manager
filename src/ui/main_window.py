@@ -3,6 +3,7 @@ import os
 from . import moddb_client, user_settings
 from .mod_index import HyperTag, ModDetail, ModIndex
 from .settings_page import SettingsPage
+from .local_mods_page import LocalModsPage
 from .worker import WorkerSignals
 from settings import get_installed_game_version, APP_PATH
 
@@ -90,7 +91,6 @@ class FirstLaunchPopup(QWidget):
             return
         
         version = get_installed_game_version()
-        print(version)
         if version is not None:
             try:
                 version_index = self.version_texts.index('v' + version)
@@ -174,14 +174,13 @@ class RootView(QWidget):
         
         image = QPixmap()
         image.load("data/test.png")
-        test_pixmap = QLabel()
-        test_pixmap.setPixmap(image)
         mod_detail = ModIndex()
         self.settings_view = SettingsPage()
+        self.local_mods = LocalModsPage()
         
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(mod_detail)
-        self.view_stack.addWidget(test_pixmap)
+        self.view_stack.addWidget(self.local_mods)
         self.view_stack.addWidget(self.settings_view)
         
         root_layout.addWidget(mod_index_switch, 0, 0)

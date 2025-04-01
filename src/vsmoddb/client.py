@@ -166,7 +166,10 @@ class ModDbClient:
             release_tags = []
             for tag in release['tags']:
                 release_tags.append(self.tag_from_name(tag))
-            releases.append(ModRelease(release, release_tags, raw_mod['modid']))
+            try:
+                releases.append(ModRelease(release, release_tags, raw_mod['modid']))
+            except TypeError:
+                pass
 
         screenshots = []
         for screenshot in raw_mod['screenshots']:
@@ -281,7 +284,10 @@ class CacheManager:
             return
         
         with open(os.path.join(self.cache_location, 'cache.dat'), 'rb') as f:
-            self.cache = pickle.load(f)
+            try:
+                self.cache = pickle.load(f)
+            except EOFError:
+                return
 
 
 class CachedModDbClient(ModDbClient):

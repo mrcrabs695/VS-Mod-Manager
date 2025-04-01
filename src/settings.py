@@ -1,6 +1,11 @@
 import sys
 import os
 import json
+import pickle
+import traceback
+
+from mod_profiles import ModProfile
+from mod_info_parser import LocalMod, scan_mod_directory
 
 if sys.platform == "win32":
     GAME_SEARCH_PATHS = [
@@ -68,6 +73,7 @@ DEFAULTS = {
         "first_launch": True,
         "downloaded_mods": {},
         "profiles": [],
+        "active_profile": None,
     }
 }
 
@@ -89,10 +95,12 @@ class SettingsLoadFailed(Exception):
     pass
 
 
+# TODO: this needs a serious refactor dawg
 class UserSettings:
     def __init__(self, settings_file_path:str = SETTINGS_FILE_PATH, raw:dict = None):
         # if os.path.exists(settings_file_path):
         self._settings_file_path = settings_file_path
+        self._mod_info_location = None
         # else:
         #     raise FileNotFoundError(f"Settings file not found at {settings_file_path}")
         
@@ -117,14 +125,19 @@ class UserSettings:
                 "download_location": self.mod_download_location,
                 "cache_location": self.cache_location,
                 "first_launch": self.first_launch,
-                "downloaded_mods": self.downloaded_mods,
+                # "downloaded_mods": self.downloaded_mods,
                 "profiles": self.profiles,
+                "active_profile": self.active_profile,
             }
         }
     
     def save(self):
         with open(self._settings_file_path, 'w') as f:
             json.dump(self.to_dict(), f)
+        
+        if self._mod_info_location is not None:
+            with open(self._mod_info_location, 'wb') as f:
+                pickle.dump(self._downloaded_mods, f)
     
     def load(self, raw:dict):
         game_section = raw.get('game', {})
@@ -138,8 +151,42 @@ class UserSettings:
         self._first_launch = mod_section.get('first_launch', DEFAULTS['mod_manager']['first_launch'])
         self._mod_download_location = mod_section.get('download_location', DEFAULTS['mod_manager']['download_location'])
         self._cache_location = mod_section.get('cache_location', DEFAULTS['mod_manager']['cache_location'])
-        self._downloaded_mods = mod_section.get('downloaded_mods', {})
+        # self._downloaded_mods = mod_section.get('downloaded_mods', [])
         self._profiles = mod_section.get('profiles', [])
+        self._active_profile = mod_section.get('active_profile', DEFAULTS['mod_manager']['active_profile'])
+        
+        self._mod_info_location = os.path.join(self.mod_download_location, 'local_mod_info.dat')
+        self._downloaded_mods = scan_mod_directory(self.mod_download_location)
+        
+        with open(self._mod_info_location, 'r+b' if os.path.exists(self._mod_info_location) else 'x+b') as f:
+            try:
+                loaded_mods:list[LocalMod]  = pickle.load(f)
+            except EOFError:
+                print("Failed to load local mod info")
+                traceback.print_exc()
+                loaded_mods = []
+        
+        for mod in loaded_mods:
+            scanned_mod = self.get_mod_info(mod.mod_id_str)
+            if scanned_mod is not None:
+                if scanned_mod.full_mod_info != mod.full_mod_info:
+                    index = self.downloaded_mods.index(scanned_mod)
+                    self.downloaded_mods[index] = mod
+        
+        enabled_mods = scan_mod_directory(os.path.join(self.game_data_path, 'Mods'))
+        for mod in enabled_mods:
+            mod.is_enabled = True
+            name = os.path.basename(mod.install_location)
+            mod.install_location = os.path.join(self.mod_download_location, name)
+            mod.current_path = os.path.join(self.game_data_path, 'Mods', name)
+            
+            scanned_mod = self.get_mod_info(mod.mod_id_str)
+            if scanned_mod is not None:
+                index = self.downloaded_mods.index(scanned_mod)
+                self.downloaded_mods[index] = mod
+            else:
+                self.downloaded_mods.append(mod)
+        
     
     def load_from_file(self) -> bool:
         raw = get_user_settings()
@@ -209,12 +256,24 @@ class UserSettings:
         return self._cache_location
     
     @property
-    def downloaded_mods(self) -> dict[str, str]:
+    def downloaded_mods(self) -> list[LocalMod]:
         return self._downloaded_mods
     
     @downloaded_mods.setter
-    def downloaded_mods(self, value:dict[str, str]):
+    def downloaded_mods(self, value:list[LocalMod]):
         self._downloaded_mods = value
+    
+    def get_mod_info(self, mod_id:str|int) -> LocalMod | None:
+        for mod in self.downloaded_mods:
+            if mod.mod_id_str == mod_id:
+                return mod
+            
+            elif mod.full_mod_info is not None:
+                if mod.full_mod_info.mod_id == mod_id:
+                    return mod
+                elif mod.full_mod_info.mod_id_str == mod_id:
+                    return mod
+        return None
     
     @property
     def profiles(self) -> list:
@@ -223,3 +282,11 @@ class UserSettings:
     @profiles.setter
     def profiles(self, value:list):
         self._profiles = value
+    
+    @property
+    def active_profile(self) -> ModProfile | None:
+        return self._active_profile
+    
+    @active_profile.setter
+    def active_profile(self, value:ModProfile | None):
+        self._active_profile = value

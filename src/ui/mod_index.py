@@ -4,24 +4,37 @@ import traceback
 from . import moddb_client, thread_pool, user_settings
 from .worker import Worker, WorkerSignals
 from settings import APP_PATH
+from mod_info_parser import LocalMod, get_mod_info
+from mod_profiles import enable_mod, disable_mod
 from vsmoddb.models import Mod, Comment, ModRelease, PartialMod, SearchOrderBy, SearchOrderDirection
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QSizePolicy, QFrame, QProgressDialog, QMessageBox, QLayout, QListWidget, QListWidgetItem, QSplitter
-from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool, QRect, QPoint
+from PySide6.QtCore import Slot, QSize, QThread, QObject, QThreadPool, QRect, QPoint, Signal
 from PySide6.QtGui import QPixmap, QColor, QPalette, QIcon, QMouseEvent, Qt
 from httpx import HTTPStatusError
 
 # TODO: once the groundwork is done, all the temp style sheets will need to be removed and replaced with a proper app level stylesheet
 
 
+class DownloaderSignals(QObject):
+    finished = Signal()
+    progress = Signal(int)
+    mod_deleted = Signal(object)
+
 class ModDownloader(QObject):
     #? This could be refactored to handle more then just downloading once the actual mod index widget is created
-    def __init__(self, to_disabled_buttons:list[QPushButton] = None, mod_release:ModRelease|list[ModRelease] = None, parent:QWidget|None = None):
+    def __init__(self, to_disabled_buttons:list[QPushButton] = None, mod_release:ModRelease|list[ModRelease] = None, max_workers:int = 5, parent:QWidget|None = None):
         super().__init__(parent=parent)
         self.to_disabled_buttons = to_disabled_buttons if to_disabled_buttons else []
         self.mod_release = mod_release
-        self.download_jobs:list[ModDownloader.DownloadJob] = []
+        
+        self.pending_jobs:list[ModDownloader.DownloadJob] = []
+        self.running_jobs:list[ModDownloader.DownloadJob] = []
+        self.finished_jobs:list[ModDownloader.DownloadJob] = []
         self.progress_dialog = None
+        
+        self.max_concurrent_jobs = max_workers
+        self.signals = DownloaderSignals()
         
         if isinstance(mod_release, list):
             for release in mod_release:
@@ -63,20 +76,28 @@ class ModDownloader(QObject):
             self.progress_end = progress
     
     @property
-    def total_jobs(self) -> int:
-        return len(self.download_jobs)
+    def total_job_count(self) -> int:
+        return len(self.pending_jobs) + len(self.finished_jobs) + len(self.running_jobs)
     
     @property
-    def finished_jobs(self) -> int:
-        return len([job for job in self.download_jobs if job.finished])
+    def pending_job_count(self) -> int:
+        return len(self.pending_jobs)
     
     @property
-    def failed_jobs(self) -> int:
-        return len([job for job in self.download_jobs if job.failed])
+    def running_job_count(self) -> int:
+        return len(self.running_jobs)
+    
+    @property
+    def finished_job_count(self) -> int:
+        return len(self.finished_jobs)
+    
+    @property
+    def failed_job_count(self) -> int:
+        return len([job for job in self.finished_jobs if job.failed])
     
     @property
     def gather_failed_jobs(self):
-        return [job for job in self.download_jobs if job.failed]
+        return [job for job in self.finished_jobs if job.failed]
     
     @property
     def disable_buttons(self):
@@ -106,7 +127,7 @@ class ModDownloader(QObject):
     
     
     def add_download_job(self, job):
-        self.download_jobs.append(job)
+        self.pending_jobs.append(job)
         
         job.signals.finished.connect(lambda: self.download_finished(job))
         job.signals.result.connect(lambda result: job.set_result(result))
@@ -123,12 +144,15 @@ class ModDownloader(QObject):
         if not self.progress_dialog:
             self.progress_dialog = QProgressDialog("Downloading...", "Cancel", 0, 0)
         
-        self.progress_dialog.setMaximum(self.total_jobs)
+        self.progress_dialog.setMaximum(self.total_job_count)
         
-        for job in self.download_jobs:
-            if not job.started:
+        for job in self.pending_jobs:
+            if self.running_job_count < self.max_concurrent_jobs:
                 job.started = True
+                self.pending_jobs.remove(job)
+                self.running_jobs.append(job)
                 thread_pool.start(job.worker)
+        
     
     @Slot()
     def download_mod_single(self, release:ModRelease, on_result_callback = None):
@@ -138,46 +162,76 @@ class ModDownloader(QObject):
         self.start_download()
         
     @Slot()
-    def download_finished(self, result):
-        result.finished = True
-        self.progress_dialog.setValue(self.finished_jobs)
-        if not result.failed:
-            user_settings.downloaded_mods[str(result.mod_release.mod_id)] = result.file_name
+    def download_finished(self, finished_job):
+        finished_job.finished = True
+        self.running_jobs.remove(finished_job)
+        self.finished_jobs.append(finished_job)
         
-        if self.finished_jobs == self.total_jobs:
+        self.progress_dialog.setValue(self.finished_job_count)
+        self.signals.progress.emit(self.finished_job_count)
+        if not finished_job.failed:
+            try:
+                local_mod = get_mod_info(finished_job.file_name)
+            except:
+                traceback.print_exc()
+            
+            if local_mod.full_mod_info is None:
+                local_mod.fetch_full_mod_info(moddb_client)
+            
+            if local_mod not in user_settings.downloaded_mods:
+                user_settings.downloaded_mods.append(local_mod)
+        
+        if self.pending_job_count > 0 and self.running_job_count < self.max_concurrent_jobs:
+            self.start_download()
+        
+        if self.finished_job_count == self.total_job_count:
             self.progress_dialog.close()
-            if self.failed_jobs > 0 and self.total_jobs > 10:
-                QMessageBox.warning(self.parent(), "Download Complete", f" {self.finished_jobs} mods downloaded and {self.failed_jobs} mods failed to download\n Failed to download: {[job.filename + "\n" for job in self.gather_failed_jobs]}", QMessageBox.StandardButton.Ok)
-            elif self.total_jobs > 10:
-                QMessageBox.information(self.parent(), "Download Complete", f"{self.finished_jobs} mods downloaded", QMessageBox.StandardButton.Ok)
+            if self.failed_job_count > 0 and self.total_job_count > 10:
+                QMessageBox.warning(self.parent(), "Download Complete", f" {self.finished_job_count} mods downloaded and {self.failed_job_count} mods failed to download\n Failed to download: {[job.filename + "\n" for job in self.gather_failed_jobs]}", QMessageBox.StandardButton.Ok)
+            elif self.total_job_count > 10:
+                QMessageBox.information(self.parent(), "Download Complete", f"{self.finished_job_count} mods downloaded", QMessageBox.StandardButton.Ok)
             
             if self.disable_buttons:
                 for button in self.disable_buttons:
                     if not button.isEnabled():
                         button.setEnabled(True)
             
-            self.download_jobs.clear()
+            self.finished_jobs.clear()
             user_settings.save()
+            self.signals.finished.emit()
     
-    def delete_mods(self, mod_list:list[int]):
+    def delete_mods(self, mod_list:list[int|str]):
         for mod in mod_list:
-            try:
-                path = user_settings.downloaded_mods.pop(str(mod))
+            local_mod = user_settings.get_mod_info(mod)
+            if local_mod is not None:
+                path = local_mod.current_path
                 os.remove(path)
-            except KeyError:
-                pass
+                user_settings.downloaded_mods.remove(local_mod)
+                self.signals.mod_deleted.emit(mod)
         user_settings.save()
 
 
 downloader = ModDownloader()
 
 class ModPreview(QFrame):
-    def __init__(self, mod:PartialMod, mod_detail: QWidget = None):
+    def __init__(self, mod:PartialMod | LocalMod, mod_detail: QWidget = None):
         super().__init__()
         self.mod = mod
         
-        self.full_mod_info = moddb_client.cache_manager.get(f'mod/{self.mod.mod_id}_')
-        self.mod_detail_view = mod_detail
+        if isinstance(mod, PartialMod):
+            self.full_mod_info = moddb_client.cache_manager.get(f'mod/{self.mod.mod_id}_')
+            self.mod_detail_view = mod_detail
+            self.mod_icon = self.mod.logo
+            self.mod_id = self.mod.mod_id
+        else:
+            self.mod_detail_view = None
+            self.mod_icon = mod.icon
+            self.mod_id = self.mod.mod_id_str
+            
+            self.full_mod_info = self.mod.full_mod_info
+            if self.full_mod_info is None:
+                signals = WorkerSignals()
+                self.fetch_full_mod_info(signals)
         
         self.main_layout = QVBoxLayout()
         
@@ -188,39 +242,70 @@ class ModPreview(QFrame):
         self.logo_image = QPixmap()
         self.logo_label = QLabel()
         
-        if self.mod.logo != None and self.mod.logo !=  'None':
-            self.fetch_logo_worker = Worker(moddb_client.fetch_to_memory, self.mod.logo)
+        if self.mod_icon != None and self.mod_icon != 'None' and isinstance(self.mod_icon, str):
+            self.fetch_logo_worker = Worker(moddb_client.fetch_to_memory, self.mod_icon)
             self.fetch_logo_worker.signals.result.connect(self.load_logo)
             self.fetch_logo_worker.signals.error.connect(lambda error: self.load_placeholder_logo())
             thread_pool.start(self.fetch_logo_worker)
+        elif isinstance(self.mod_icon, bytes):
+            self.logo_image.loadFromData(self.mod_icon)
+            self.logo_label.setPixmap(self.logo_image.scaledToWidth(200))
         else:
             self.logo_image.load('data/test.png')
             self.logo_label.setPixmap(self.logo_image.scaledToWidth(200))
         
         self.title_label = QLabel(mod.name)
-        self.summary_label = QLabel(mod.summary)
+        
+        if isinstance(self.mod, PartialMod):
+            summary = mod.summary
+            info = f"Downloads: <b>{mod.downloads}</b>"
+        else:
+            summary = mod.description
+            info = f"Installed Version: <b>{mod.version}</b>"
+        
+        self.summary_label = QLabel(summary)
         self.summary_label.setWordWrap(True)
-        self.downloads_label = QLabel(f"Downloads: <b>{mod.downloads}</b>")
+        self.info_label = QLabel(info)
+        
         self.download_icon = QIcon(os.path.join(APP_PATH, 'data/icons/download.svg'))
         self.download_icon.addFile(os.path.join(APP_PATH, 'data/icons/download-off.svg'), mode=QIcon.Mode.Disabled)
         self.delete_icon = QIcon(os.path.join(APP_PATH, 'data/icons/trash-x.svg'))
         
-        if user_settings.downloaded_mods.get(str(mod.mod_id), None) is not None:
-            self.quick_download_button = QPushButton("Uninstall")
-            self.quick_download_button.setIcon(self.delete_icon)
-            self.quick_download_button.clicked.connect(self.delete_mod)
+        if isinstance(mod, PartialMod):
+            if user_settings.get_mod_info(self.mod_id) is not None:
+                self.main_action_button = QPushButton("Uninstall")
+                self.main_action_button.setIcon(self.delete_icon)
+                self.main_action_button.clicked.connect(self.delete_mod)
+            else:
+                self.main_action_button = QPushButton("Install")
+                self.main_action_button.setIcon(self.download_icon)
+                self.main_action_button.clicked.connect(self.download_mod)
+            self.secondary_action_button = None
         else:
-            self.quick_download_button = QPushButton("Install")
-            self.quick_download_button.setIcon(self.download_icon)
-            self.quick_download_button.clicked.connect(self.download_mod)
+            self.main_action_button = QPushButton("Uninstall")
+            self.main_action_button.setIcon(self.delete_icon)
+            self.main_action_button.clicked.connect(self.delete_mod)
+            
+            if self.mod.is_enabled:
+                self.secondary_action_button = QPushButton("Disable")
+                self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-minus.svg')))
+                self.secondary_action_button.clicked.connect(self.disable_mod)
+            else:
+                self.secondary_action_button = QPushButton("Enable")
+                self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
+                self.secondary_action_button.clicked.connect(self.enable_mod)
+        
+        downloader.signals.mod_deleted.connect(self.on_delete_finished)
         
         self.main_layout.addWidget(self.logo_label, 2)
         self.main_layout.addWidget(self.title_label, 1)
         self.main_layout.addWidget(self.summary_label, 3)
-        self.main_layout.addWidget(self.downloads_label, 1)
-        self.main_layout.addWidget(self.quick_download_button, 1)
+        self.main_layout.addWidget(self.info_label, 1)
+        self.main_layout.addWidget(self.main_action_button, 1)
+        if self.secondary_action_button:
+            self.main_layout.addWidget(self.secondary_action_button, 1)
         self.setLayout(self.main_layout)
-        
+    
     
     @Slot()
     def load_logo(self, image_data:bytes):
@@ -242,7 +327,7 @@ class ModPreview(QFrame):
     
     @Slot()
     def download_mod(self):
-        self.quick_download_button.setEnabled(False)
+        self.main_action_button.setEnabled(False)
         if self.full_mod_info is None:
             signals = WorkerSignals()
             signals.result.connect(lambda mod: self.on_full_mod_info(mod, downloader.download_mod_single, mod.releases[0], on_result_callback=self.on_download_finished))
@@ -252,7 +337,7 @@ class ModPreview(QFrame):
     
     @Slot()
     def fetch_full_mod_info(self, signals:WorkerSignals):
-        self.mod_info_worker = Worker(moddb_client.get_mod, self.mod.mod_id, signals=signals)
+        self.mod_info_worker = Worker(moddb_client.get_mod, self.mod_id, signals=signals)
         thread_pool.start(self.mod_info_worker)
     
     @Slot()
@@ -262,22 +347,47 @@ class ModPreview(QFrame):
     
     @Slot()
     def on_download_finished(self, _result):
-        self.quick_download_button.setEnabled(True)
-        self.quick_download_button.setText("Uninstall")
-        self.quick_download_button.setIcon(self.delete_icon)
-        self.quick_download_button.clicked.disconnect(self.download_mod)
-        self.quick_download_button.clicked.connect(self.delete_mod)
+        self.main_action_button.setEnabled(True)
+        self.main_action_button.setText("Uninstall")
+        self.main_action_button.setIcon(self.delete_icon)
+        self.main_action_button.clicked.disconnect(self.download_mod)
+        self.main_action_button.clicked.connect(self.delete_mod)
     
     @Slot()
     def delete_mod(self):
-        downloader.delete_mods([self.mod.mod_id])
-        self.quick_download_button.setText("Install")
-        self.quick_download_button.setIcon(self.download_icon)
-        self.quick_download_button.clicked.connect(self.download_mod)
-        self.quick_download_button.clicked.disconnect(self.delete_mod)
+        downloader.delete_mods([self.mod_id])
+    
+    @Slot()
+    def on_delete_finished(self, mod_id:str | int):
+        if mod_id != self.mod_id:
+            return
+        
+        if isinstance(self.mod, PartialMod):
+            self.main_action_button.setText("Install")
+            self.main_action_button.setIcon(self.download_icon)
+            self.main_action_button.clicked.connect(self.download_mod)
+            self.main_action_button.clicked.disconnect(self.delete_mod)
+        else:
+            self.deleteLater()
+    
+    @Slot()
+    def enable_mod(self):
+        enable_mod(self.mod, self.mod.version, user_settings.game_data_path)
+        self.secondary_action_button.setText("Disable")
+        self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-minus.svg')))
+        self.secondary_action_button.clicked.connect(self.disable_mod)
+        self.secondary_action_button.clicked.disconnect(self.enable_mod)
+    
+    @Slot()
+    def disable_mod(self):
+        disable_mod(self.mod, self.mod.version, user_settings.game_data_path)
+        self.secondary_action_button.setText("Enable")
+        self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
+        self.secondary_action_button.clicked.connect(self.enable_mod)
+        self.secondary_action_button.clicked.disconnect(self.disable_mod)
     
     def mousePressEvent(self, event:QMouseEvent):
-        if event.button() == Qt.MouseButton.LeftButton and event.modifiers() == Qt.KeyboardModifier.NoModifier:
+        if event.button() == Qt.MouseButton.LeftButton and event.modifiers() == Qt.KeyboardModifier.NoModifier and isinstance(self.mod, PartialMod):
             event.accept()
             if self.mod_detail_view != None:
                 if self.full_mod_info is None:
@@ -493,7 +603,9 @@ class ModIndex(QSplitter):
         if mods is not None:
             self.result_number.setText(f"{len(self.mods)} results found.")
             self.result_number.show()
-        self.mods_list_layout.addWidget(self.load_more_mods_button)
+        if self.mods_shown <= len(self.mods):
+            self.mods_list_layout.addWidget(self.load_more_mods_button)
+        
         self.scroll_area.updateGeometry()
 
 
