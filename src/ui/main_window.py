@@ -2,19 +2,24 @@ import os
 
 from . import moddb_client, user_settings
 from .mod_index import HyperTag, ModDetail, ModIndex
-from settings import get_installed_game_version, APP_PATH
 from .settings_page import SettingsPage
+from .local_mods_page import LocalModsPage
+from .worker import WorkerSignals
+from settings import get_installed_game_version, APP_PATH
 
 from vsmoddb.client import ModDbClient
 
 from PySide6.QtWidgets import QStackedWidget, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit, QComboBox, QLabel, QPushButton, QScrollArea, QGraphicsPixmapItem, QDialog, QFormLayout, QMessageBox
-from PySide6.QtCore import Slot, Qt
+from PySide6.QtCore import Slot, Qt, Signal
 from PySide6.QtGui import QPixmap, QPalette, QColor, QIcon
 
 
 class FirstLaunchPopup(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent=parent)
+        
+        self.continue_startup = WorkerSignals()
+        
         self.setWindowTitle("Configure Mod Manager")
         self.setMinimumSize(600, 400)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Dialog)
@@ -27,19 +32,23 @@ class FirstLaunchPopup(QWidget):
         self.form_layout = QFormLayout()
         self.version_combo_box = QComboBox()
         
-        version_texts = [version.name for version in moddb_client.versions]
+        self.version_texts = [version.name for version in moddb_client.versions]
         try:
-            current_version_index = version_texts.index(version_texts.index('v' + user_settings.game_version))
+            current_version_index = self.version_texts.index('v' + user_settings.game_version)
         except ValueError:
             current_version_index = 0
         
-        self.version_combo_box.addItems(version_texts)
+        self.version_combo_box.addItems(self.version_texts)
         self.version_combo_box.setCurrentIndex(current_version_index)
         self.form_layout.addRow(QLabel("<h2>Game Version: </h2>"), self.version_combo_box)
         
         self.game_path_line_edit = QLineEdit(user_settings.game_path if user_settings.game_path else "")
         self.game_path_line_edit.setPlaceholderText("Enter the path to your game's root folder.")
         self.form_layout.addRow(QLabel("<h2>Game Path: </h2>"), self.game_path_line_edit)
+        
+        self.rescan_path_button = QPushButton("Rescan Path")
+        self.rescan_path_button.clicked.connect(lambda clicked: self.rescan_path())
+        self.form_layout.addWidget(self.rescan_path_button)
         
         self.game_data_path_line_edit = QLineEdit(user_settings.game_data_path if user_settings.game_data_path else "")
         self.game_data_path_line_edit.setPlaceholderText("Enter the path to your game's user data folder.")
@@ -61,19 +70,44 @@ class FirstLaunchPopup(QWidget):
         
         self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
     
-    def on_confirm_clicked(self):
-        game_version = self.version_combo_box.currentText().removeprefix("v")
+    def check_paths(self):
         game_path = self.game_path_line_edit.text().strip()
         game_data_path = self.game_data_path_line_edit.text().strip()
-        mod_download_location = self.mod_install_location_line_edit.text().strip()
         
         if not os.path.exists(game_path):
             QMessageBox.warning(self, "Error", f"Game path does not exist: {game_path}")
-            return
+            return None
         
         if not os.path.exists(game_data_path):
             QMessageBox.warning(self, "Error", f"Game data path does not exist: {game_data_path}")
+            return None
+        
+        return (game_path, game_data_path)
+    
+    def rescan_path(self):
+        game_path, game_data_path = self.check_paths()
+        
+        if game_path is None or game_data_path is None:
             return
+        
+        version = get_installed_game_version()
+        if version is not None:
+            try:
+                version_index = self.version_texts.index('v' + version)
+            except ValueError:
+                QMessageBox.warning(self, "Error", "Failed to get game version (make sure you have the right folder selected)")
+                return
+            self.version_combo_box.setCurrentIndex(version_index)
+            user_settings.game_version = version
+    
+    def on_confirm_clicked(self):
+        game_version = self.version_combo_box.currentText().removeprefix("v")
+        game_path, game_data_path = self.check_paths()
+        
+        if game_path is None or game_data_path is None:
+            return
+        
+        mod_download_location = self.mod_install_location_line_edit.text().strip()
         
         if not os.path.exists(mod_download_location):
             QMessageBox.warning(self, "Error", f"Mod download location does not exist: {mod_download_location}")
@@ -100,6 +134,7 @@ class FirstLaunchPopup(QWidget):
         user_settings.first_launch = False
         user_settings.save()
         
+        self.continue_startup.finished.emit()
         self.deleteLater()
 
 class RootView(QWidget):
@@ -109,6 +144,13 @@ class RootView(QWidget):
         if user_settings.first_launch:
             self.first_launch_popup = FirstLaunchPopup()
             self.first_launch_popup.show()
+            self.first_launch_popup.continue_startup.finished.connect(self.continue_setup)
+        else:
+            self.continue_setup()
+    
+    def continue_setup(self):
+        user_settings.main_window.show()
+        user_settings.main_window.setFocus()
         
         root_layout = QGridLayout(self)
         root_layout.setObjectName("root_layout")
@@ -132,14 +174,13 @@ class RootView(QWidget):
         
         image = QPixmap()
         image.load("data/test.png")
-        test_pixmap = QLabel()
-        test_pixmap.setPixmap(image)
         mod_detail = ModIndex()
         self.settings_view = SettingsPage()
+        self.local_mods = LocalModsPage()
         
         self.view_stack = QStackedWidget()
         self.view_stack.addWidget(mod_detail)
-        self.view_stack.addWidget(test_pixmap)
+        self.view_stack.addWidget(self.local_mods)
         self.view_stack.addWidget(self.settings_view)
         
         root_layout.addWidget(mod_index_switch, 0, 0)

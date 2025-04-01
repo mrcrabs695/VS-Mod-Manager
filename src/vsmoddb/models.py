@@ -183,6 +183,7 @@ class Mod:
         self.tags = tags
         self.releases = releases
         self.screenshots = screenshots
+        self.mod_id_str = releases[0].mod_id_str
     
     def get_releases_for_version(self, version:Tag, include_pre_release=False, strict_match=False):
         if version.type != TagType.VERSION:
@@ -206,3 +207,9 @@ class Mod:
         
         releases.sort(key=lambda x: x["release"].created, reverse=True)
         return releases
+    
+    def get_release(self, version:str) -> ModRelease | None:
+        for release in self.releases:
+            if release.mod_version == version:
+                return release
+        return None
