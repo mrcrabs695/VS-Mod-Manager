@@ -73,7 +73,7 @@ DEFAULTS = {
         "first_launch": True,
         "downloaded_mods": {},
         "profiles": [],
-        "active_profile": None,
+        "active_profile": ModProfile().export_to_json(),
     }
 }
 
@@ -86,6 +86,12 @@ def get_user_settings():
         with open(settings_file, 'r') as f:
             return json.load(f)
     except FileNotFoundError:
+        with open(settings_file, 'x') as f:
+            json.dump(DEFAULTS, f)
+        return DEFAULTS
+    except:
+        print("Failed loading user settings, reverting to defaults...")
+        os.rename(settings_file, f"{settings_file}.bak")
         with open(settings_file, 'x') as f:
             json.dump(DEFAULTS, f)
         return DEFAULTS
@@ -126,8 +132,8 @@ class UserSettings:
                 "cache_location": self.cache_location,
                 "first_launch": self.first_launch,
                 # "downloaded_mods": self.downloaded_mods,
-                "profiles": self.profiles,
-                "active_profile": self.active_profile,
+                "profiles": [profile.export_to_json() for profile in self.profiles],
+                "active_profile": self.active_profile.export_to_json(),
             }
         }
     
@@ -152,8 +158,23 @@ class UserSettings:
         self._mod_download_location = mod_section.get('download_location', DEFAULTS['mod_manager']['download_location'])
         self._cache_location = mod_section.get('cache_location', DEFAULTS['mod_manager']['cache_location'])
         # self._downloaded_mods = mod_section.get('downloaded_mods', [])
-        self._profiles = mod_section.get('profiles', [])
-        self._active_profile = mod_section.get('active_profile', DEFAULTS['mod_manager']['active_profile'])
+        profiles = mod_section.get('profiles', [])
+        if profiles is not None and len(profiles) > 0:
+            self._profiles = [ModProfile.import_from_json(profile, self._game_version) for profile in profiles]
+            for profile in self._profiles:
+                if profile.game_version is None:
+                    profile.game_version = self._game_version
+        else:
+            self._profiles = []
+        
+        self._active_profile = ModProfile.import_from_json(mod_section.get('active_profile', DEFAULTS['mod_manager']['active_profile']), self._game_version)
+        if self._active_profile is None:
+            self._active_profile = ModProfile(game_version=self._game_version, description="Default Profile")
+        elif self._active_profile.game_version == "":
+            self._active_profile.game_version = self._game_version
+        
+        if self._profiles is None or len(self._profiles) == 0:
+            self._profiles.append(self._active_profile)
         
         self._mod_info_location = os.path.join(self.mod_download_location, 'local_mod_info.dat')
         self._downloaded_mods = scan_mod_directory(self.mod_download_location)
@@ -276,11 +297,11 @@ class UserSettings:
         return None
     
     @property
-    def profiles(self) -> list:
+    def profiles(self) -> list[ModProfile]:
         return self._profiles
     
     @profiles.setter
-    def profiles(self, value:list):
+    def profiles(self, value:list[ModProfile]):
         self._profiles = value
     
     @property
@@ -290,3 +311,9 @@ class UserSettings:
     @active_profile.setter
     def active_profile(self, value:ModProfile | None):
         self._active_profile = value
+    
+    def get_profile(self, profile_name:str) -> ModProfile | None:
+        for profile in self.profiles:
+            if profile.name == profile_name:
+                return profile
+        return None

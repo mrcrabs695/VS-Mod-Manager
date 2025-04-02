@@ -174,12 +174,14 @@ class ModDownloader(QObject):
                 local_mod = get_mod_info(finished_job.file_name)
             except:
                 traceback.print_exc()
-            
-            if local_mod.full_mod_info is None:
-                local_mod.fetch_full_mod_info(moddb_client)
-            
-            if local_mod not in user_settings.downloaded_mods:
-                user_settings.downloaded_mods.append(local_mod)
+            if local_mod:
+                if local_mod.full_mod_info is None:
+                    local_mod.fetch_full_mod_info(moddb_client)
+                
+                if local_mod not in user_settings.downloaded_mods:
+                    user_settings.downloaded_mods.append(local_mod)
+            else:
+                print(f"Error adding mod to downloaded mods. Mod file path: {finished_job.file_name}")
         
         if self.pending_job_count > 0 and self.running_job_count < self.max_concurrent_jobs:
             self.start_download()
@@ -205,7 +207,10 @@ class ModDownloader(QObject):
             local_mod = user_settings.get_mod_info(mod)
             if local_mod is not None:
                 path = local_mod.current_path
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except:
+                    pass
                 user_settings.downloaded_mods.remove(local_mod)
                 self.signals.mod_deleted.emit(mod)
         user_settings.save()
@@ -281,6 +286,7 @@ class ModPreview(QFrame):
                 self.main_action_button.setIcon(self.download_icon)
                 self.main_action_button.clicked.connect(self.download_mod)
             self.secondary_action_button = None
+            self.add_to_profile_button = None
         else:
             self.main_action_button = QPushButton("Uninstall")
             self.main_action_button.setIcon(self.delete_icon)
@@ -294,6 +300,15 @@ class ModPreview(QFrame):
                 self.secondary_action_button = QPushButton("Enable")
                 self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
                 self.secondary_action_button.clicked.connect(self.enable_mod)
+            
+            if self.mod.mod_id_str in user_settings.active_profile.mods.keys():
+                self.add_to_profile_button = QPushButton("Remove from Profile")
+                self.add_to_profile_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-minus.svg')))
+                self.add_to_profile_button.clicked.connect(self.remove_from_profile)
+            else:
+                self.add_to_profile_button = QPushButton("Add to Profile")
+                self.add_to_profile_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
+                self.add_to_profile_button.clicked.connect(self.add_to_profile)
         
         downloader.signals.mod_deleted.connect(self.on_delete_finished)
         
@@ -304,6 +319,8 @@ class ModPreview(QFrame):
         self.main_layout.addWidget(self.main_action_button, 1)
         if self.secondary_action_button:
             self.main_layout.addWidget(self.secondary_action_button, 1)
+        if self.add_to_profile_button:
+            self.main_layout.addWidget(self.add_to_profile_button, 1)
         self.setLayout(self.main_layout)
     
     
@@ -385,6 +402,22 @@ class ModPreview(QFrame):
         self.secondary_action_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
         self.secondary_action_button.clicked.connect(self.enable_mod)
         self.secondary_action_button.clicked.disconnect(self.disable_mod)
+    
+    @Slot()
+    def add_to_profile(self):
+        user_settings.active_profile.add_mod(self.mod_id, self.mod.version)
+        self.add_to_profile_button.setText("Remove from Profile")
+        self.add_to_profile_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-minus.svg')))
+        self.add_to_profile_button.clicked.connect(self.remove_from_profile)
+        self.add_to_profile_button.clicked.disconnect(self.add_to_profile)
+    
+    @Slot()
+    def remove_from_profile(self):
+        user_settings.active_profile.remove_mod(self.mod_id)
+        self.add_to_profile_button.setText("Add to Profile")
+        self.add_to_profile_button.setIcon(QIcon(os.path.join(APP_PATH, 'data/icons/triangle-plus.svg')))
+        self.add_to_profile_button.clicked.disconnect(self.remove_from_profile)
+        self.add_to_profile_button.clicked.connect(self.add_to_profile)
     
     def mousePressEvent(self, event:QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton and event.modifiers() == Qt.KeyboardModifier.NoModifier and isinstance(self.mod, PartialMod):

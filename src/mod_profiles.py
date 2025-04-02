@@ -71,7 +71,7 @@ class ModProfile:
     @staticmethod
     def import_from_json(json_data: dict, game_version:str = None) -> 'ModProfile':
         return ModProfile(
-            name=json_data.get('name', ''),
+            name=json_data.get('name', 'Default'),
             description=json_data.get('description', ''),
             mods=json_data.get('mods', {}),
             game_version=json_data.get('game_version', game_version),
